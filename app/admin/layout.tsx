@@ -14,10 +14,10 @@ import {
   ChevronLeft,
   LogOut,
   MessageSquare,
-  Users,
-  MapPin
+  Users
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { AdminNotifications } from '@/components/admin-notifications'
 
 const navItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
@@ -27,7 +27,6 @@ const navItems = [
   { href: '/admin/deals', label: 'Deals', icon: Tag },
   { href: '/admin/reviews', label: 'Reviews', icon: MessageSquare },
   { href: '/admin/support', label: 'Support', icon: MessageSquare },
-  { href: '/admin/branches', label: 'Branches', icon: MapPin },
   { href: '/admin/customers', label: 'Customers', icon: Users },
   { href: '/admin/settings', label: 'Settings', icon: Settings },
 ]
@@ -155,15 +154,17 @@ export default function AdminLayout({
 
       {/* Main content */}
       <div className="lg:pl-64">
-        {/* Mobile header */}
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-border bg-card px-4 lg:hidden">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="rounded-lg p-2 text-muted-foreground hover:bg-muted"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-          <span className="font-bold text-foreground">Fatty Patty Admin</span>
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-card px-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="rounded-lg p-2 text-muted-foreground hover:bg-muted lg:hidden"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <span className="font-bold text-foreground">Fatty Patty Admin</span>
+          </div>
+          <AdminNotifications />
         </header>
 
         <main className="p-4 lg:p-8">

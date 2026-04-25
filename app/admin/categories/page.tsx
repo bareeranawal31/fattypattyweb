@@ -106,7 +106,10 @@ export default function AdminCategoriesPage() {
 
       const data = await response.json()
       
-      if (!response.ok) throw new Error(data.error)
+      if (!response.ok) {
+        const message = data?.error || 'Failed to save category'
+        throw new Error(message)
+      }
 
       if (editingCategory) {
         // `data.data` will be the updated category object (PATCH route returns single)
@@ -125,7 +128,8 @@ export default function AdminCategoriesPage() {
       setFormData(initialFormData)
     } catch (error) {
       console.error('[v0] Error saving category:', error)
-      toast.error('Failed to save category')
+      const message = error instanceof Error ? error.message : 'Failed to save category'
+      toast.error(`Failed to save category: ${message}`)
     } finally {
       setIsSubmitting(false)
     }
@@ -137,14 +141,19 @@ export default function AdminCategoriesPage() {
         method: 'DELETE',
       })
 
-      if (!response.ok) throw new Error('Failed to delete')
+      if (!response.ok) {
+        const result = await response.json().catch(() => null)
+        const message = result?.error || 'Failed to delete category'
+        throw new Error(message)
+      }
 
       setCategories(prev => prev.filter(cat => cat.id !== id))
       setDeleteConfirm(null)
       toast.success('Category deleted successfully')
     } catch (error) {
       console.error('[v0] Error deleting category:', error)
-      toast.error('Failed to delete category')
+      const message = error instanceof Error ? error.message : 'Failed to delete category'
+      toast.error(`Failed to delete category: ${message}`)
     }
   }
 

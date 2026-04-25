@@ -1,17 +1,13 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { X, CheckCircle2, Loader2, MapPin, Clock, Store, Navigation } from 'lucide-react'
+import { X, CheckCircle2, Loader2, MapPin, Clock, Store } from 'lucide-react'
 import { useCart, type CartItem } from '@/lib/cart-context'
 import { useAdminSettings } from '@/lib/admin-settings'
 import { useOrder } from '@/lib/order-context'
 import { useCustomerAuth } from '@/lib/customer-auth-context'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 import { toast } from '@/lib/notify'
-import { LocationMap } from '@/components/location-map'
-import { useUserLocation } from '@/hooks/use-user-location'
-import { useGoogleMaps } from '@/hooks/use-google-maps'
-import { checkDeliveryCoverage, findNearestBranch, type LatLng } from '@/lib/location-utils'
 
 interface AdminCoupon {
   id: string
@@ -30,7 +26,6 @@ interface AccountResponse {
   name: string | null
   email: string
   phone: string | null
-  loyalty_points: number
 }
 
 interface SavedAddress {
@@ -46,9 +41,6 @@ interface SavedAddress {
 const SETTINGS_STORAGE_KEY = 'adminSettings'
 const CUSTOMER_PROFILE_FALLBACK_PREFIX = 'customer-profile-fallback:'
 const CUSTOMER_ADDRESSES_FALLBACK_PREFIX = 'customer-addresses:'
-const LOYALTY_MIN_ORDER_AMOUNT = 1500
-const LOYALTY_FIXED_POINTS = 15
-const LOYALTY_REDEEM_VALUE_PER_POINT = 1
 
 function getFallbackProfileKey(userId: string) {
   return `${CUSTOMER_PROFILE_FALLBACK_PREFIX}${userId}`
@@ -63,8 +55,6 @@ interface CheckoutModalProps {
 }
 
 export function CheckoutModal({ onClose }: CheckoutModalProps) {
-  const supabase = createSupabaseClient()
-  const { hasApiKey, loadError } = useGoogleMaps()
   const { items, subtotal, clearCart } = useCart()
   const { orderType, selectedArea, selectedBranch, deliveryAreas, branches } = useOrder()
   const settings = useAdminSettings()
@@ -75,8 +65,6 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
   const [couponCode, setCouponCode] = useState('')
   const [appliedCouponCode, setAppliedCouponCode] = useState('')
   const [discountAmount, setDiscountAmount] = useState(0)
-  const [loyaltyPointsToRedeem, setLoyaltyPointsToRedeem] = useState(0)
-  const [loyaltyInput, setLoyaltyInput] = useState('')
   const [couponRules, setCouponRules] = useState<Record<string, { type: 'percentage' | 'fixed'; value: number }>>({})
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([])
   const [selectedSavedAddressId, setSelectedSavedAddressId] = useState('')
@@ -90,43 +78,11 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
     branch: selectedBranch || '',
     notes: '',
   })
-  const {
-    location: detectedLocation,
-    setLocation: setDetectedLocation,
-    detectLocation,
-    isDetecting,
-    locationError,
-    clearLocationError,
-  } = useUserLocation()
-
-  const nearestBranchResult = detectedLocation
-    ? findNearestBranch(detectedLocation, branches)
-    : null
-  const nearestBranch = nearestBranchResult?.branch || null
-  const nearestDistanceKm = nearestBranchResult?.distanceKm || null
-
-  const deliveryCoverage = checkDeliveryCoverage(
-    nearestBranch,
-    detectedLocation,
-    formData.area || undefined,
-  )
-  const isDeliveryAvailable = formData.orderType === 'delivery' ? deliveryCoverage.isAvailable : true
 
   const deliveryFee = formData.orderType === 'delivery' ? settings.deliveryFee : 0
   const taxRate = 0 // No tax for now
   const taxAmount = subtotal * taxRate
-  const totalBeforeLoyalty = Math.max(0, subtotal + deliveryFee + taxAmount - discountAmount)
-  const availableLoyaltyPoints = profile?.current_points || 0
-  const redeemValuePerPoint = LOYALTY_REDEEM_VALUE_PER_POINT
-  const maxRedeemablePointsByAmount = Math.floor(totalBeforeLoyalty / redeemValuePerPoint)
-  const maxRedeemablePoints = Math.min(availableLoyaltyPoints, maxRedeemablePointsByAmount)
-  const loyaltyDiscount = Math.min(loyaltyPointsToRedeem * redeemValuePerPoint, totalBeforeLoyalty)
-  const total = Math.max(0, totalBeforeLoyalty - loyaltyDiscount)
-  const earnedLoyaltyPoints =
-    user && totalBeforeLoyalty >= LOYALTY_MIN_ORDER_AMOUNT
-      ? LOYALTY_FIXED_POINTS
-      : 0
-  const willEarnLoyaltyPoints = earnedLoyaltyPoints > 0
+  const total = Math.max(0, subtotal + deliveryFee + taxAmount - discountAmount)
   const estimatedTime =
     formData.orderType === 'delivery'
       ? `${settings.estimatedDeliveryTime} minutes`
@@ -198,10 +154,6 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
     const safeDiscount = Math.min(computedDiscount, subtotal + deliveryFee + taxAmount)
     setDiscountAmount(safeDiscount)
   }, [appliedCouponCode, couponRules, subtotal, deliveryFee, taxAmount])
-
-  useEffect(() => {
-    setLoyaltyPointsToRedeem((prev) => Math.min(prev, maxRedeemablePoints))
-  }, [maxRedeemablePoints])
 
   useEffect(() => {
     if (!user) {
@@ -317,17 +269,6 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
     }))
   }, [savedAddresses, selectedSavedAddressId])
 
-  useEffect(() => {
-    if (formData.orderType !== 'delivery') {
-      return
-    }
-
-    setFormData((prev) => ({
-      ...prev,
-      branch: nearestBranch?.id || prev.branch,
-    }))
-  }, [formData.orderType, nearestBranch?.id])
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
@@ -350,18 +291,6 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
     }
     if (formData.orderType === 'delivery' && !formData.address.trim()) {
       toast.error('Please enter your delivery address')
-      return
-    }
-    if (formData.orderType === 'delivery' && !detectedLocation) {
-      toast.error('Please select your delivery location on map or use Detect My Location')
-      return
-    }
-    if (formData.orderType === 'delivery' && !nearestBranch) {
-      toast.error('No branch with map coordinates is available for delivery')
-      return
-    }
-    if (formData.orderType === 'delivery' && !isDeliveryAvailable) {
-      toast.error('Selected location is outside our delivery zone')
       return
     }
     if (formData.orderType === 'pickup' && !formData.branch) {
@@ -420,16 +349,17 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
         pickupBranch: formData.orderType === 'pickup' ? (branches.find(b => b.id === formData.branch)?.name || formData.branch) : undefined,
         deliveryArea: formData.orderType === 'delivery' ? formData.area : undefined,
         deliveryAddress: formData.orderType === 'delivery' ? formData.address.trim() : undefined,
-        selectedBranchId: formData.orderType === 'delivery' ? nearestBranch?.id : formData.branch,
-        deliveryLatitude: formData.orderType === 'delivery' ? detectedLocation?.lat : undefined,
-        deliveryLongitude: formData.orderType === 'delivery' ? detectedLocation?.lng : undefined,
+        selectedBranchId:
+          formData.orderType === 'delivery'
+            ? (selectedBranch || branches[0]?.id || formData.branch || undefined)
+            : formData.branch,
+        deliveryLatitude: undefined,
+        deliveryLongitude: undefined,
         deliveryFee,
         couponCode: appliedCouponCode || undefined,
         discountAmount,
         subtotal,
         total,
-        loyaltyEligibleTotal: totalBeforeLoyalty,
-        loyaltyPointsRedeemed: loyaltyPointsToRedeem,
         specialInstructions: formData.notes.trim() || undefined,
         items: orderItems,
         status: 'Pending',
@@ -442,6 +372,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
         const headers: HeadersInit = { 'Content-Type': 'application/json' }
 
         if (user) {
+          const supabase = createSupabaseClient()
           const {
             data: { session },
           } = await supabase.auth.getSession()
@@ -523,43 +454,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
       setOrderNumber(orderNumber)
       setOrderPlaced(true)
       clearCart()
-      setLoyaltyPointsToRedeem(0)
-      setLoyaltyInput('')
       if (user) {
-        try {
-          const existingRaw = localStorage.getItem(getFallbackProfileKey(user.id))
-          const existing = existingRaw
-            ? (JSON.parse(existingRaw) as {
-                current_points?: number
-                lifetime_points_earned?: number
-                total_points_redeemed?: number
-                full_name?: string | null
-                email?: string
-              })
-            : {}
-
-          const earned =
-            totalBeforeLoyalty >= LOYALTY_MIN_ORDER_AMOUNT
-              ? LOYALTY_FIXED_POINTS
-              : 0
-          const redeemed = loyaltyPointsToRedeem
-          const nextCurrentPoints = Math.max(0, (existing.current_points || 0) + earned - redeemed)
-
-          localStorage.setItem(
-            getFallbackProfileKey(user.id),
-            JSON.stringify({
-              id: user.id,
-              email: user.email || existing.email || formData.email || '',
-              full_name: existing.full_name || profile?.full_name || formData.fullName || null,
-              current_points: nextCurrentPoints,
-              lifetime_points_earned: (existing.lifetime_points_earned || 0) + earned,
-              total_points_redeemed: (existing.total_points_redeemed || 0) + redeemed,
-            }),
-          )
-        } catch {
-          // ignore local fallback errors
-        }
-
         await refreshProfile()
       }
       toast.success('Order placed successfully!')
@@ -576,22 +471,6 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
       setSelectedSavedAddressId('')
     }
     setFormData((prev) => ({ ...prev, [field]: value }))
-  }
-
-  const handleDetectLocation = async () => {
-    clearLocationError()
-    const location = await detectLocation()
-    if (!location) {
-      toast.error('Unable to detect your location. Please select manually on the map.')
-      return
-    }
-    setDetectedLocation(location)
-    toast.success('Location detected. Nearest branch selected automatically.')
-  }
-
-  const handleMapLocationSelect = (location: LatLng) => {
-    clearLocationError()
-    setDetectedLocation(location)
   }
 
   const applyCoupon = () => {
@@ -623,34 +502,6 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
     setAppliedCouponCode('')
     setCouponCode('')
     setDiscountAmount(0)
-  }
-
-  const applyLoyaltyPoints = () => {
-    if (!user) {
-      toast.error('Please sign in to redeem loyalty points')
-      return
-    }
-
-    const parsed = parseInt(loyaltyInput || '0', 10)
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      toast.error('Enter valid loyalty points to redeem')
-      return
-    }
-
-    const safePoints = Math.min(parsed, maxRedeemablePoints)
-    if (safePoints <= 0) {
-      toast.error('No redeemable points available for this order')
-      return
-    }
-
-    setLoyaltyPointsToRedeem(safePoints)
-    const redeemAmount = safePoints * redeemValuePerPoint
-    toast.success(`${safePoints} points applied (Rs. ${redeemAmount.toLocaleString()})`) 
-  }
-
-  const clearLoyaltyPoints = () => {
-    setLoyaltyPointsToRedeem(0)
-    setLoyaltyInput('')
   }
 
   if (orderPlaced) {
@@ -821,69 +672,9 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
                       className="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand-red focus:outline-none focus:ring-2 focus:ring-brand-red/20"
                     />
 
-                    <div className="rounded-xl border border-border bg-background p-3">
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Delivery Location
-                        </p>
-                        <button
-                          type="button"
-                          onClick={handleDetectLocation}
-                          disabled={isDetecting}
-                          className="inline-flex items-center gap-2 rounded-lg border border-brand-red px-3 py-1.5 text-xs font-semibold text-brand-red transition-all hover:bg-brand-red/5 disabled:opacity-50"
-                        >
-                          {isDetecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Navigation className="h-3.5 w-3.5" />}
-                          Detect My Location
-                        </button>
-                      </div>
-
-                      {(!hasApiKey || loadError) && (
-                        <p className="mb-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-700">
-                          Google Maps API unavailable. Fallback map preview is active.
-                        </p>
-                      )}
-
-                      {branches.length === 0 && (
-                        <p className="mb-2 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700">
-                          No branches are configured. Delivery cannot be processed.
-                        </p>
-                      )}
-
-                      <LocationMap
-                        branches={branches}
-                        selectedLocation={detectedLocation}
-                        center={detectedLocation}
-                        allowLocationPick
-                        onLocationSelect={handleMapLocationSelect}
-                        height={220}
-                        className="rounded-lg"
-                        fallbackQuery={nearestBranch ? `${nearestBranch.name}, ${nearestBranch.address}` : 'Fatty Patty Karachi'}
-                      />
-
-                      <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                        <p>
-                          Selected coordinates:{' '}
-                          {detectedLocation
-                            ? `${detectedLocation.lat.toFixed(6)}, ${detectedLocation.lng.toFixed(6)}`
-                            : 'Not selected'}
-                        </p>
-                        <p>
-                          Nearest branch:{' '}
-                          {nearestBranch
-                            ? `${nearestBranch.name}${nearestDistanceKm != null ? ` (${nearestDistanceKm.toFixed(2)} km)` : ''}`
-                            : 'Not available'}
-                        </p>
-                        <p className={isDeliveryAvailable ? 'text-green-600' : 'text-red-600'}>
-                          Delivery availability: {isDeliveryAvailable ? 'Available' : 'Not Available'}
-                        </p>
-                        {locationError && <p className="text-red-600">{locationError}</p>}
-                        {!isDeliveryAvailable && detectedLocation && (
-                          <p className="text-red-600">
-                            Your location is outside our service zone for the nearest branch.
-                          </p>
-                        )}
-                      </div>
-                    </div>
+                    <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                      Please enter your complete delivery address manually, including street, block, and nearby landmark.
+                    </p>
                   </div>
                 </div>
               )}
@@ -957,50 +748,6 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
                   </div>
                 )}
               </div>
-
-              {/* Loyalty Points */}
-              <div>
-                <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-foreground">Loyalty Points</h3>
-                {!user ? (
-                  <p className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                    Sign in to redeem points and earn points on qualifying orders.
-                  </p>
-                ) : (
-                  <>
-                    <p className="mb-2 text-xs text-muted-foreground">
-                      Available: <span className="font-semibold text-foreground">{availableLoyaltyPoints}</span> points
-                      {' '}({`Rs. ${(availableLoyaltyPoints * redeemValuePerPoint).toLocaleString()}`})
-                    </p>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        min={0}
-                        value={loyaltyInput}
-                        onChange={(e) => setLoyaltyInput(e.target.value)}
-                        placeholder="Points to redeem"
-                        className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand-red focus:outline-none focus:ring-2 focus:ring-brand-red/20"
-                      />
-                      <button
-                        type="button"
-                        onClick={applyLoyaltyPoints}
-                        className="rounded-xl border border-brand-red px-4 py-3 text-sm font-semibold text-brand-red transition-all hover:bg-brand-red/5"
-                      >
-                        Redeem
-                      </button>
-                    </div>
-                    {loyaltyDiscount > 0 && (
-                      <div className="mt-2 flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                        <span>
-                          Redeemed: <strong>{loyaltyPointsToRedeem} points (Rs. {loyaltyDiscount.toLocaleString()})</strong>
-                        </span>
-                        <button type="button" onClick={clearLoyaltyPoints} className="font-semibold hover:underline">
-                          Remove
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
             </div>
 
             {/* Order Summary */}
@@ -1038,12 +785,6 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
                       <span className="text-green-600">- Rs. {discountAmount.toLocaleString()}</span>
                     </div>
                   )}
-                  {loyaltyDiscount > 0 && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Loyalty Redeemed</span>
-                      <span className="text-amber-700">- Rs. {loyaltyDiscount.toLocaleString()}</span>
-                    </div>
-                  )}
                   <div className="flex items-center justify-between border-t border-border pt-2">
                     <span className="font-bold text-foreground">Total</span>
                     <span className="text-lg font-bold text-brand-red">Rs. {total.toLocaleString()}</span>
@@ -1051,21 +792,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
                 </div>
 
                 <div className="mt-3 rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
-                  {user ? (
-                    willEarnLoyaltyPoints ? (
-                      <span>
-                        This order qualifies for <strong className="text-foreground">{earnedLoyaltyPoints} loyalty points</strong>.
-                      </span>
-                    ) : (
-                      <span>
-                        Spend Rs. {LOYALTY_MIN_ORDER_AMOUNT.toLocaleString()}+ in this order to earn {LOYALTY_FIXED_POINTS} points.
-                      </span>
-                    )
-                  ) : (
-                    <span>
-                      Sign in to earn {LOYALTY_FIXED_POINTS} points on orders from Rs. {LOYALTY_MIN_ORDER_AMOUNT.toLocaleString()} and above.
-                    </span>
-                  )}
+                  Estimated time: {estimatedTime}
                 </div>
 
                 {subtotal < settings.minOrderAmount && (
@@ -1089,8 +816,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
             type="submit"
             disabled={
               isSubmitting ||
-              branches.length === 0 ||
-              (formData.orderType === 'delivery' && !isDeliveryAvailable)
+              branches.length === 0
             }
             className="mt-6 w-full flex items-center justify-center gap-2 rounded-xl bg-brand-red py-3.5 text-sm font-semibold text-primary-foreground transition-all hover:bg-brand-red/90 disabled:opacity-50 active:scale-[0.98]"
           >

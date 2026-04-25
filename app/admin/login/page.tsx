@@ -9,12 +9,10 @@ const ADMIN_EMAIL = "fattypattyadmin@gmail.com"
 const ADMIN_PASSWORD = "fatty@14"
 
 export default function AdminLoginPage() {
-  const supabase = createClient()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [isResetting, setIsResetting] = useState(false)
 
   // Check if already logged in
   useEffect(() => {
@@ -44,10 +42,19 @@ export default function AdminLoginPage() {
       return
     }
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: emailInput,
-      password: passwordInput,
-    })
+    let error: { message: string } | null = null
+    try {
+      const supabase = createClient()
+      const authResult = await supabase.auth.signInWithPassword({
+        email: emailInput,
+        password: passwordInput,
+      })
+      error = authResult.error
+    } catch {
+      toast.error('Authentication is unavailable right now. Please try again.')
+      setIsLoading(false)
+      return
+    }
 
     if (!error) {
       sessionStorage.setItem('adminAuth', 'true')
@@ -58,46 +65,6 @@ export default function AdminLoginPage() {
 
     toast.error('Invalid credentials')
     setIsLoading(false)
-  }
-
-  const handleForgotPassword = async () => {
-    const emailInput = email.trim().toLowerCase()
-    if (!emailInput) {
-      toast.error('Enter admin email first')
-      return
-    }
-
-    if (emailInput !== ADMIN_EMAIL.toLowerCase()) {
-      toast.error('Enter the admin email to reset password')
-      return
-    }
-
-    setIsResetting(true)
-    try {
-      // Ensure admin user exists in Supabase Auth before sending recovery email.
-      const ensureResponse = await fetch('/api/admin/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput }),
-      })
-
-      const ensureResult = await ensureResponse.json()
-      if (!ensureResponse.ok || ensureResult.error) {
-        toast.error(ensureResult.error || 'Could not prepare password reset')
-        return
-      }
-
-      const redirectTo = `${window.location.origin}/admin/login/reset-password`
-      const { error } = await supabase.auth.resetPasswordForEmail(emailInput, { redirectTo })
-      if (error) {
-        toast.error(error.message)
-        return
-      }
-
-      toast.success('Password reset email sent. Please check your inbox.')
-    } finally {
-      setIsResetting(false)
-    }
   }
 
   return (
@@ -156,17 +123,8 @@ export default function AdminLoginPage() {
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
-            <div className="mt-2 text-right">
-              <button
-                type="button"
-                onClick={handleForgotPassword}
-                disabled={isResetting || isLoading}
-                className="text-xs font-medium text-brand-red hover:underline disabled:opacity-60"
-              >
-                {isResetting ? 'Sending reset link...' : 'Forgot password?'}
-              </button>
-            </div>
           </div>
+
           <button
             type="submit"
             disabled={isLoading}

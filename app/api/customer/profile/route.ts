@@ -4,19 +4,24 @@ import { createClient } from '@/lib/supabase/server'
 const LOYALTY_MIN_ORDER_AMOUNT = 1500
 const LOYALTY_FIXED_POINTS = 15
 
+function normalizeEmail(email: string | null | undefined): string | null {
+  return email?.trim().toLowerCase() || null
+}
+
 async function getDerivedLoyaltySnapshot(userId: string, email: string | null) {
   const supabase = await createClient()
+  const normalizedEmail = normalizeEmail(email)
   const [{ data: byUserId, error: byUserIdError }, { data: byEmail, error: byEmailError }] = await Promise.all([
     supabase
       .from('orders')
       .select('*')
       .eq('user_id', userId),
-    email
+    normalizedEmail
       ? supabase
           .from('orders')
           .select('*')
           .is('user_id', null)
-          .eq('customer_email', email)
+          .ilike('customer_email', normalizedEmail)
       : Promise.resolve({ data: [], error: null }),
   ])
 
@@ -94,9 +99,10 @@ async function ensureCustomerProfile() {
   }
 
   if (existing) {
+    const mergedEmail = normalizeEmail(existing.email || userRow?.email || user.email || '') || ''
     const mergedProfile = {
       ...existing,
-      email: existing.email || userRow?.email || user.email || '',
+      email: mergedEmail,
       full_name: existing.full_name || userRow?.name || (user.user_metadata?.full_name as string | undefined) || null,
       current_points: Math.max(
         Number(existing.current_points || 0),
@@ -133,10 +139,21 @@ async function ensureCustomerProfile() {
     }
 
     if (mergedProfile.current_points !== Number(userRow?.loyalty_points || 0)) {
-      await supabase
+      const { error: syncError } = await supabase
         .from('users')
-        .update({ loyalty_points: mergedProfile.current_points })
-        .eq('id', user.id)
+        .upsert(
+          {
+            id: user.id,
+            email: mergedProfile.email || '',
+            name: mergedProfile.full_name || null,
+            loyalty_points: mergedProfile.current_points,
+          },
+          { onConflict: 'id' },
+        )
+
+      if (syncError) {
+        console.warn('Failed to sync loyalty points to users row:', syncError.message)
+      }
     }
 
     return { profile: mergedProfile, status: 200 as const, error: null }
@@ -144,7 +161,7 @@ async function ensureCustomerProfile() {
 
   const insertPayload = {
     id: user.id,
-    email: userRow?.email || user.email || '',
+    email: normalizeEmail(userRow?.email || user.email || '') || '',
     full_name: userRow?.name || (user.user_metadata?.full_name as string | undefined) || null,
     current_points: Math.max(Number(userRow?.loyalty_points || 0), Number(derivedLoyalty.current_points || 0)),
     lifetime_points_earned: Number(derivedLoyalty.lifetime_points_earned || 0),
@@ -159,6 +176,22 @@ async function ensureCustomerProfile() {
 
   if (insertError) {
     return { profile: null, status: 500 as const, error: 'Failed to create profile' }
+  }
+
+  const { error: syncError } = await supabase
+    .from('users')
+    .upsert(
+      {
+        id: user.id,
+        email: created.email || '',
+        name: created.full_name || null,
+        loyalty_points: created.current_points,
+      },
+      { onConflict: 'id' },
+    )
+
+  if (syncError) {
+    console.warn('Failed to sync loyalty points to users row after profile creation:', syncError.message)
   }
 
   return { profile: created, status: 200 as const, error: null }

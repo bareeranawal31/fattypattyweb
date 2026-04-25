@@ -53,7 +53,7 @@ export async function PATCH(
     if (body.name !== undefined) updatePayload.name = body.name
     if (body.description !== undefined) updatePayload.description = body.description
     if (body.image_url !== undefined) updatePayload.image = body.image_url
-    if (body.display_order !== undefined) updatePayload.sort_order = body.display_order
+    if (body.display_order !== undefined) updatePayload.display_order = body.display_order
     if (body.is_active !== undefined) updatePayload.is_active = body.is_active
 
     const { data, error } = await supabase
@@ -88,13 +88,22 @@ export async function DELETE(
       .delete()
       .eq('id', id)
 
-    if (error) throw error
+    if (error) {
+      if (/foreign key|constraint/i.test(error.message || '')) {
+        return NextResponse.json(
+          { error: 'Cannot delete category while menu items still reference it. Remove or reassign those items first.' },
+          { status: 400 }
+        )
+      }
+      throw error
+    }
 
     return NextResponse.json({ success: true }, { status: 200 })
   } catch (error) {
-    console.error('[v0] Error deleting category:', error)
+    const message = error instanceof Error ? error.message : 'Failed to delete category'
+    console.error('[v0] Error deleting category:', message, error)
     return NextResponse.json(
-      { error: 'Failed to delete category' },
+      { error: message },
       { status: 500 }
     )
   }

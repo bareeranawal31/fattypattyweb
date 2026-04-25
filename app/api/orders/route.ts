@@ -90,6 +90,10 @@ function getMissingColumnName(message: string | undefined): string | null {
   return bareMatch?.[1] || null
 }
 
+function normalizeEmail(email: string | null | undefined): string | null {
+  return email?.trim().toLowerCase() || null
+}
+
 async function insertOrderWithFallbacks(
   supabase: SupabaseClient,
   payload: Record<string, unknown>,
@@ -248,7 +252,9 @@ export async function POST(request: Request) {
   try {
     const supabase = await createClient()
     const body: CreateOrderRequest = await request.json()
+    const normalizedCustomerEmail = normalizeEmail(body.customerEmail)
     const user = await resolveRequestUser(request)
+    const normalizedUserEmail = normalizeEmail(user?.email || body.customerEmail || '') || ''
     let dbClient: SupabaseClient = supabase
 
     try {
@@ -358,7 +364,7 @@ export async function POST(request: Request) {
       const ensureUserError = await upsertUsersRow(dbClient, {
         id: user.id,
         name: userDisplayName,
-        email: user.email || body.customerEmail || '',
+        email: normalizedUserEmail,
         phone: body.customerPhone || null,
         loyalty_points: 0,
         is_active: true,
@@ -450,7 +456,7 @@ export async function POST(request: Request) {
     const orderInsertPayload = {
       user_id: user?.id || null,
       customer_name: body.customerName,
-      customer_email: body.customerEmail,
+      customer_email: normalizedCustomerEmail,
       customer_phone: body.customerPhone,
       customer_address: body.deliveryAddress || null,
       order_type: body.orderType,
@@ -564,7 +570,7 @@ export async function POST(request: Request) {
         .upsert(
           {
             id: user.id,
-            email: existingProfile?.email || user.email || body.customerEmail || '',
+            email: normalizeEmail(existingProfile?.email || user.email || body.customerEmail || '') || '',
             full_name:
               existingProfile?.full_name ||
               (user.user_metadata?.full_name as string | undefined) ||
@@ -584,7 +590,7 @@ export async function POST(request: Request) {
           (user.user_metadata?.full_name as string | undefined) ||
           body.customerName ||
           null,
-        email: (existingUserRow?.email as string | undefined) || user.email || body.customerEmail || '',
+        email: normalizeEmail((existingUserRow?.email as string | undefined) || user.email || body.customerEmail || '') || '',
         phone: (existingUserRow?.phone as string | undefined) || body.customerPhone || null,
         loyalty_points: nextCurrentPoints,
         is_active: (existingUserRow?.is_active as boolean | undefined) ?? true,

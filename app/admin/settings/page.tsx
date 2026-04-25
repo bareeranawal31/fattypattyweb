@@ -12,10 +12,6 @@ import {
   parseAdminSettings,
 } from '@/lib/admin-settings'
 
-const LOYALTY_MIN_ORDER_AMOUNT = 1500
-const LOYALTY_FIXED_POINTS = 15
-const LOYALTY_REDEEM_VALUE_PER_POINT = 1
-
 export default function AdminSettingsPage() {
   const [settings, setSettings] = useState<AdminSettings>(defaultAdminSettings)
   const [newCoupon, setNewCoupon] = useState<{ code: string; type: CouponType; value: number }>({
@@ -382,49 +378,6 @@ export default function AdminSettingsPage() {
               </div>
             ))
           )}
-        </div>
-      </div>
-
-      {/* Loyalty Settings */}
-      <div className="rounded-xl border border-border bg-card p-6">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100">
-            <TicketPercent className="h-5 w-5 text-amber-600" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-foreground">Loyalty Points</h2>
-            <p className="text-sm text-muted-foreground">Fixed program rules currently active for all customers</p>
-          </div>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">Minimum order to earn (Rs.)</label>
-            <input
-              type="number"
-              value={LOYALTY_MIN_ORDER_AMOUNT}
-              disabled
-              className="w-full rounded-lg border border-border bg-muted px-4 py-2.5 text-sm text-muted-foreground"
-            />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">Points earned per qualifying order</label>
-            <input
-              type="number"
-              value={LOYALTY_FIXED_POINTS}
-              disabled
-              className="w-full rounded-lg border border-border bg-muted px-4 py-2.5 text-sm text-muted-foreground"
-            />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-foreground">Redeem value per point (Rs.)</label>
-            <input
-              type="number"
-              value={LOYALTY_REDEEM_VALUE_PER_POINT}
-              disabled
-              className="w-full rounded-lg border border-border bg-muted px-4 py-2.5 text-sm text-muted-foreground"
-            />
-          </div>
         </div>
       </div>
 

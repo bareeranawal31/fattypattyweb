@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Star, Zap } from 'lucide-react'
 import { popularItems } from '@/lib/menu-data'
 import type { MenuItem } from '@/lib/menu-data'
+import { useCustomerAuth } from '@/lib/customer-auth-context'
 import { SignInBenefitsPrompt } from '@/components/signin-benefits-prompt'
 
 interface PopularItemsProps {
@@ -14,8 +15,9 @@ interface PopularItemsProps {
 
 export function PopularItems({ onItemClick }: PopularItemsProps) {
   const router = useRouter()
-  const [pendingQuickAddItem, setPendingQuickAddItem] = useState<MenuItem | null>(null)
+  const { user, loading: authLoading } = useCustomerAuth()
   const [productRatings, setProductRatings] = useState<Record<string, number>>({})
+  const [pendingQuickAddItem, setPendingQuickAddItem] = useState<MenuItem | null>(null)
 
   useEffect(() => {
     const loadRatings = () => {
@@ -39,15 +41,39 @@ export function PopularItems({ onItemClick }: PopularItemsProps) {
 
   const handleQuickAdd = (e: React.MouseEvent, item: MenuItem) => {
     e.stopPropagation()
+    if (authLoading || user) {
+      onItemClick(item)
+      return
+    }
+
     setPendingQuickAddItem(item)
   }
 
   const handleCardClick = (item: MenuItem) => {
+    if (authLoading || user) {
+      onItemClick(item)
+      return
+    }
+
     setPendingQuickAddItem(item)
   }
 
   return (
     <>
+      <SignInBenefitsPrompt
+        open={Boolean(pendingQuickAddItem) && !authLoading}
+        onClose={() => setPendingQuickAddItem(null)}
+        onSignIn={() => {
+          setPendingQuickAddItem(null)
+          router.push(`/auth/customer?returnTo=${encodeURIComponent('/')}`)
+        }}
+        onContinueGuest={() => {
+          if (pendingQuickAddItem) {
+            onItemClick(pendingQuickAddItem)
+          }
+          setPendingQuickAddItem(null)
+        }}
+      />
       <section className="bg-gradient-to-b from-background via-muted/20 to-background py-20 lg:py-32">
         <div className="site-container">
         <div className="section-head fade-in-up">
@@ -129,21 +155,6 @@ export function PopularItems({ onItemClick }: PopularItemsProps) {
         </div>
         </div>
       </section>
-
-      <SignInBenefitsPrompt
-        open={Boolean(pendingQuickAddItem)}
-        onClose={() => setPendingQuickAddItem(null)}
-        onSignIn={() => {
-          setPendingQuickAddItem(null)
-          router.push(`/auth/customer?returnTo=${encodeURIComponent('/')}`)
-        }}
-        onContinueGuest={() => {
-          if (pendingQuickAddItem) {
-            onItemClick(pendingQuickAddItem)
-          }
-          setPendingQuickAddItem(null)
-        }}
-      />
     </>
   )
 }

@@ -38,7 +38,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from('categories')
       .select('*')
-      .order('sort_order', { ascending: true })
+      .order('display_order', { ascending: true })
 
     if (error) throw error
 
@@ -66,6 +66,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { name, description, display_order = 0 } = body
 
+    console.log('[v0] Creating category with:', { name, description, display_order })
+
     if (!name) {
       return NextResponse.json(
         { error: 'Category name is required' },
@@ -75,25 +77,66 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase()
 
-    // Generate a slug-style text ID (DB uses text primary key)
-    const catId = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-
-    const { data, error } = await supabase
+    // Check if the categories table exists
+    console.log('[v0] Checking if categories table exists...')
+    const { error: tableCheckError } = await supabase
       .from('categories')
-      .insert([{ id: catId, name, description, image: '/images/placeholder.jpg', sort_order: display_order }])
-      .select()
+      .select('id')
+      .limit(1)
 
-    if (error) throw error
+    if (tableCheckError) {
+      console.error('[v0] Table check error:', tableCheckError)
+      if (tableCheckError.message?.includes('relation "public.categories" does not exist') ||
+          tableCheckError.code === 'PGRST116') {
+        return NextResponse.json(
+          { error: 'Categories table does not exist. Please create the table in Supabase SQL Editor with: CREATE TABLE categories (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name VARCHAR(100) NOT NULL UNIQUE, description TEXT, display_order INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)' },
+          { status: 500 }
+        )
+      }
+    } else {
+      console.log('[v0] Categories table exists')
+    }
 
-    // Supabase returns an array even for single inserts; return the first row to keep
-    // the response shape consistent with PATCH and the frontend expectations.
+    const insertRow = async () => {
+      return await supabase
+        .from('categories')
+        .insert([{ name, description, display_order }])
+        .select()
+    }
+
+    const { data, error } = await insertRow()
+
+    console.log('[v0] Insert result:', { data, error })
+
+    if (error) {
+      console.error('[v0] Supabase insert error:', error)
+      throw error
+    }
+
     const inserted = Array.isArray(data) ? data[0] : data
+
+    console.log('[v0] Category created successfully:', inserted)
 
     return NextResponse.json({ data: inserted }, { status: 201 })
   } catch (error) {
-    console.error('[v0] Error creating category:', error)
+    console.error('[v0] Error creating category - full details:', {
+      error,
+      message: error instanceof Error ? error.message : error,
+      type: typeof error,
+      isError: error instanceof Error,
+      stack: error instanceof Error ? error.stack : undefined
+    })
+    
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+        ? error
+        : 'Failed to create category'
+
+    console.error('[v0] Final error message being sent:', message)
     return NextResponse.json(
-      { error: 'Failed to create category' },
+      { error: message },
       { status: 500 }
     )
   }

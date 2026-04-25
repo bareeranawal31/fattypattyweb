@@ -5,7 +5,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useState,
   type ReactNode,
 } from 'react'
@@ -16,9 +15,7 @@ export interface CustomerProfile {
   id: string
   email: string
   full_name: string | null
-  current_points: number
-  lifetime_points_earned: number
-  total_points_redeemed: number
+
   created_at?: string
   updated_at?: string
 }
@@ -48,8 +45,18 @@ export function CustomerAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<CustomerProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [supabase, setSupabase] = useState<ReturnType<typeof createClient> | null>(null)
 
-  const supabase = useMemo(() => createClient(), [])
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    try {
+      setSupabase(createClient())
+    } catch (error) {
+      console.warn('Supabase browser client is unavailable.', error)
+      setLoading(false)
+    }
+  }, [])
 
   const setAuthStorage = useCallback((nextUser: User | null) => {
     if (typeof window === 'undefined') return
@@ -106,6 +113,10 @@ export function CustomerAuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    if (!supabase) {
+      return
+    }
+
     let mounted = true
 
     const bootstrap = async () => {
@@ -163,14 +174,18 @@ export function CustomerAuthProvider({ children }: { children: ReactNode }) {
       mounted = false
       listener.subscription.unsubscribe()
     }
-  }, [refreshProfile, setAuthStorage, supabase.auth])
+  }, [refreshProfile, setAuthStorage, supabase])
 
   const signIn = useCallback(
     async (email: string, password: string) => {
+      if (!supabase) {
+        return { error: 'Authentication is unavailable right now. Please try again.' }
+      }
+
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       return { error: error?.message ?? null }
     },
-    [supabase.auth],
+    [supabase],
   )
 
   const signUp = useCallback(
@@ -196,15 +211,23 @@ export function CustomerAuthProvider({ children }: { children: ReactNode }) {
 
   const requestPasswordReset = useCallback(
     async (email: string) => {
+      if (!supabase) {
+        return { error: 'Authentication is unavailable right now. Please try again.' }
+      }
+
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/auth/customer/reset-password`,
       })
       return { error: error?.message ?? null }
     },
-    [supabase.auth],
+    [supabase],
   )
 
   const signInWithGoogle = useCallback(async () => {
+    if (!supabase) {
+      return { error: 'Authentication is unavailable right now. Please try again.' }
+    }
+
     try {
       const configuredSiteUrl = (process.env.NEXT_PUBLIC_SITE_URL || '').trim()
       const currentOrigin = window.location.origin
@@ -225,14 +248,17 @@ export function CustomerAuthProvider({ children }: { children: ReactNode }) {
     } catch {
       return { error: 'Google sign-in could not start. Please try again.' }
     }
-  }, [supabase.auth])
+  }, [supabase])
 
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut()
+    if (supabase) {
+      await supabase.auth.signOut()
+    }
+
     setProfile(null)
     setUser(null)
     setAuthStorage(null)
-  }, [setAuthStorage, supabase.auth])
+  }, [setAuthStorage, supabase])
 
   return (
     <CustomerAuthContext.Provider

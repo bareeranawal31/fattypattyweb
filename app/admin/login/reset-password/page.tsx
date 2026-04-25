@@ -10,7 +10,6 @@ import { createClient } from '@/lib/supabase/client'
 function AdminResetPasswordContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const supabase = createClient()
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -30,7 +29,17 @@ function AdminResetPasswordContent() {
         return
       }
 
-      const { error } = await supabase.auth.exchangeCodeForSession(code)
+      let error: { message: string } | null = null
+      try {
+        const supabase = createClient()
+        const result = await supabase.auth.exchangeCodeForSession(code)
+        error = result.error
+      } catch {
+        toast.error('Recovery link could not be verified. Please try again.')
+        router.replace('/admin/login')
+        return
+      }
+
       if (error) {
         toast.error('Recovery link is invalid or expired. Please request a new one.')
         router.replace('/admin/login')
@@ -46,7 +55,7 @@ function AdminResetPasswordContent() {
     return () => {
       mounted = false
     }
-  }, [router, searchParams, supabase.auth])
+  }, [router, searchParams])
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -63,6 +72,7 @@ function AdminResetPasswordContent() {
 
     setIsSubmitting(true)
     try {
+      const supabase = createClient()
       const { error } = await supabase.auth.updateUser({ password })
 
       if (error) {

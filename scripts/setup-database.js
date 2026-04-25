@@ -1,10 +1,33 @@
 import { createClient } from '@supabase/supabase-js'
+import { readFileSync, existsSync } from 'fs'
+import { join } from 'path'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+// Load environment variables from .env.local and supabase.env.local
+function loadEnv() {
+  const envFiles = ['.env.local', 'supabase.env.local']
+  for (const file of envFiles) {
+    const filePath = join(process.cwd(), file)
+    if (existsSync(filePath)) {
+      const content = readFileSync(filePath, 'utf8')
+      for (const line of content.split(/\r?\n/)) {
+        const match = line.match(/^([^#=]+)=(.*)$/)
+        if (match) {
+          process.env[match[1].trim()] = match[2].trim()
+        }
+      }
+    }
+  }
+}
+
+loadEnv()
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 if (!supabaseUrl || !supabaseKey) {
   console.error('[v0] Missing Supabase environment variables')
+  console.error('[v0] NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? 'set' : 'missing')
+  console.error('[v0] SUPABASE_SERVICE_ROLE_KEY:', supabaseKey ? 'set' : 'missing')
   process.exit(1)
 }
 

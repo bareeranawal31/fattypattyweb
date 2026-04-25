@@ -32,10 +32,9 @@ export function SignInBenefitsPrompt({
       >
         <h3 className="text-lg font-bold text-foreground">Choose how to continue</h3>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Sign in to save loyalty points and order faster next time, or continue as a guest to
+          Sign in to save your preferences and order faster next time, or continue as a guest to
           open the product details.
         </p>
-        <p className="mt-2 text-xs text-muted-foreground">100 points = Rs. 100</p>
 
         <div className="mt-5 flex flex-col gap-2 sm:flex-row">
           <button

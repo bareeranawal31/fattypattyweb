@@ -19,7 +19,6 @@ interface Customer {
   name: string | null
   email: string
   phone: string | null
-  loyalty_points: number
   is_active: boolean
   created_at: string
   total_orders: number
@@ -232,7 +231,7 @@ export default function AdminCustomersPage() {
                     </span>
                   </div>
                   <p className="mt-2 text-xs text-muted-foreground">
-                    Orders {customer.total_orders} | Points {customer.loyalty_points}
+                    Orders {customer.total_orders}
                   </p>
                 </button>
               ))
@@ -281,10 +280,6 @@ export default function AdminCustomersPage() {
                 <div className="rounded-lg border border-border bg-background p-3">
                   <p className="text-xs text-muted-foreground">Total Spent</p>
                   <p className="text-lg font-bold text-foreground">Rs. {Number(selectedCustomer.total_spent || 0).toLocaleString()}</p>
-                </div>
-                <div className="rounded-lg border border-border bg-background p-3">
-                  <p className="text-xs text-muted-foreground">Loyalty Points</p>
-                  <p className="text-lg font-bold text-brand-red">{selectedCustomer.loyalty_points}</p>
                 </div>
               </div>
 
