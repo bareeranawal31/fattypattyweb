@@ -11,6 +11,26 @@ function getSupabase() {
   return createClient(supabaseUrl, supabaseKey)
 }
 
+function getMissingColumnName(message: string | undefined): string | null {
+  if (!message) return null
+
+  const quotedMatch = message.match(/Could not find the '([^']+)' column/i)
+  if (quotedMatch?.[1]) return quotedMatch[1]
+
+  const bareMatch = message.match(/column\s+(?:[a-z_]+\.)?([a-z_][a-z0-9_]*)\s+does not exist/i)
+  return bareMatch?.[1] || null
+}
+
+function normalizeCategoryRow(row: Record<string, unknown>) {
+  return {
+    ...row,
+    name: String(row.name || '').trim(),
+    description: row.description ?? null,
+    display_order: Number(row.display_order ?? row.sort_order ?? 0),
+    is_active: row.is_active ?? true,
+  }
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -27,7 +47,7 @@ export async function GET(
 
     if (error) throw error
 
-    return NextResponse.json({ data }, { status: 200 })
+    return NextResponse.json({ data: normalizeCategoryRow(data as Record<string, unknown>) }, { status: 200 })
   } catch (error) {
     console.error('[v0] Error fetching category:', error)
     return NextResponse.json(
@@ -56,16 +76,38 @@ export async function PATCH(
     if (body.display_order !== undefined) updatePayload.display_order = body.display_order
     if (body.is_active !== undefined) updatePayload.is_active = body.is_active
 
-    const { data, error } = await supabase
-      .from('categories')
-      .update(updatePayload)
-      .eq('id', id)
-      .select()
-      .single()
+    let nextPayload = { ...updatePayload }
+    let updatedRow: Record<string, unknown> | null = null
+    let lastError: { message?: string } | null = null
 
-    if (error) throw error
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const { data, error } = await supabase
+        .from('categories')
+        .update(nextPayload)
+        .eq('id', id)
+        .select()
+        .single()
 
-    return NextResponse.json({ data }, { status: 200 })
+      if (!error) {
+        updatedRow = data as Record<string, unknown>
+        break
+      }
+
+      lastError = error
+      const missingColumn = getMissingColumnName(error.message)
+      if (!missingColumn || !(missingColumn in nextPayload)) {
+        throw error
+      }
+
+      const { [missingColumn]: _removed, ...rest } = nextPayload
+      nextPayload = rest
+    }
+
+    if (!updatedRow) {
+      throw lastError || new Error('Failed to update category')
+    }
+
+    return NextResponse.json({ data: normalizeCategoryRow(updatedRow) }, { status: 200 })
   } catch (error) {
     console.error('[v0] Error updating category:', error)
     return NextResponse.json(

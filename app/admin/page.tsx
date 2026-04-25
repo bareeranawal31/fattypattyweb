@@ -34,6 +34,26 @@ interface Order {
   createdAt?: string
 }
 
+const LOCAL_ORDERS_KEY = 'orders'
+
+function normalizeOrder(order: Order) {
+  return {
+    id: String(order.id || order.order_number || Date.now()),
+    order_number: String(order.order_number || order.id || `FP-${Date.now()}`),
+    customer_name: order.customer_name || order.customerName || 'Unknown',
+    status: String(order.status || 'pending').toLowerCase(),
+    total_amount: Number(order.total_amount ?? order.total ?? 0),
+    order_type: order.order_type || order.orderType || 'delivery',
+    created_at: order.created_at || order.createdAt || new Date().toISOString(),
+  }
+}
+
+function mergeOrders(primary: Order[], fallback: Order[]) {
+  const merged = [...primary, ...fallback].map(normalizeOrder)
+  return Array.from(new Map(merged.map((order) => [order.order_number || order.id, order])).values())
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+}
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [recentOrders, setRecentOrders] = useState<Order[]>([])
@@ -42,8 +62,17 @@ export default function AdminDashboard() {
   const fetchData = async () => {
     setIsLoading(true)
     try {
+      const localOrders: Order[] = (() => {
+        try {
+          return JSON.parse(localStorage.getItem(LOCAL_ORDERS_KEY) || '[]') as Order[]
+        } catch {
+          return []
+        }
+      })()
+
       // Try fetching from API first
       let apiSuccess = false
+      let apiOrders: Order[] = []
       try {
         const [statsResponse, ordersResponse] = await Promise.all([
           fetch('/api/admin/stats'),
@@ -60,71 +89,37 @@ export default function AdminDashboard() {
 
         if (ordersResponse.ok) {
           const ordersData = await ordersResponse.json()
-          if (ordersData.data) {
-            const normalizedOrders = ordersData.data.map((order: Order) => ({
-              id: String(order.id),
-              order_number: order.order_number,
-              customer_name: order.customer_name || order.customerName || 'Unknown',
-              status: order.status || 'pending',
-              total_amount: order.total_amount || order.total || 0,
-              order_type: order.order_type || order.orderType || 'delivery',
-              created_at: order.created_at || order.createdAt || new Date().toISOString(),
-            }))
-            setRecentOrders(normalizedOrders.slice(0, 5))
+          if (Array.isArray(ordersData.data)) {
+            apiOrders = ordersData.data as Order[]
           }
         }
       } catch (apiError) {
         console.warn('API fetch failed, falling back to localStorage:', apiError)
       }
 
-      // Fall back to localStorage if API failed
-      if (!apiSuccess) {
-        const orders = JSON.parse(localStorage.getItem('orders') || '[]')
-        
-        const today = new Date().toDateString()
-        
-        const todaysOrders = orders.filter((order: Order) => {
-          const orderDate = new Date(order.created_at || order.createdAt || '').toDateString()
-          return orderDate === today
-        })
-        
-        const todaysRevenue = todaysOrders.reduce((total: number, order: Order) => {
-          return total + (order.total_amount || order.total || 0)
-        }, 0)
-        
-        const pendingOrders = orders.filter((order: Order) => 
-          (order.status || '').toLowerCase() === 'pending'
-        ).length
-        
-        const totalOrders = orders.length
-        
-        setStats({
-          todayRevenue: todaysRevenue,
-          todayOrders: todaysOrders.length,
-          pendingOrders: pendingOrders,
-          totalOrders: totalOrders,
-          completedToday: todaysOrders.filter((o: Order) => 
-            (o.status || '').toLowerCase() === 'delivered'
-          ).length,
-        })
-        
-        const sortedOrders = [...orders].sort((a: Order, b: Order) => {
-          const dateA = new Date(a.created_at || a.createdAt || 0)
-          const dateB = new Date(b.created_at || b.createdAt || 0)
-          return dateB.getTime() - dateA.getTime()
-        }).slice(0, 5)
-        
-        const normalizedOrders = sortedOrders.map((order: Order) => ({
-          id: String(order.id),
-          order_number: order.order_number,
-          customer_name: order.customer_name || order.customerName || 'Unknown',
-          status: order.status || 'pending',
-          total_amount: order.total_amount || order.total || 0,
-          order_type: order.order_type || order.orderType || 'delivery',
-          created_at: order.created_at || order.createdAt || new Date().toISOString(),
-        }))
-        
-        setRecentOrders(normalizedOrders)
+      const mergedOrders = mergeOrders(apiOrders, localOrders)
+      setRecentOrders(mergedOrders.slice(0, 5))
+
+      const today = new Date().toDateString()
+      const todaysOrders = mergedOrders.filter((order) => new Date(order.created_at).toDateString() === today)
+      const todaysRevenue = todaysOrders.reduce((total: number, order: Order) => {
+        return total + Number(order.total_amount || 0)
+      }, 0)
+      const pendingOrders = mergedOrders.filter((order) => order.status.toLowerCase() === 'pending').length
+      const totalOrders = mergedOrders.length
+
+      const mergedStats: Stats = {
+        todayRevenue: todaysRevenue,
+        todayOrders: todaysOrders.length,
+        pendingOrders,
+        totalOrders,
+        completedToday: todaysOrders.filter((order) => ['delivered', 'picked_up'].includes(order.status)).length,
+      }
+
+      if (apiSuccess || mergedOrders.length > 0) {
+        setStats(mergedStats)
+      } else if (!apiSuccess) {
+        setStats(mergedStats)
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error)

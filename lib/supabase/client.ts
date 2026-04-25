@@ -19,9 +19,11 @@ export function createSupabaseFetch(timeoutMs = 6000): typeof fetch {
 }
 
 function getSupabaseEnv() {
-  const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim()
+  const rawSupabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim()
   const supabaseAnonKey =
     (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || '').trim()
+
+  const supabaseUrl = rawSupabaseUrl.replace(/\/rest\/v1\/?$/i, '')
 
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error('Missing Supabase environment variables. Please connect Supabase integration.')

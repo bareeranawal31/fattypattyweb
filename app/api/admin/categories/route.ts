@@ -16,6 +16,57 @@ function getSupabase() {
   return createClient(supabaseUrl!, supabaseKey!)
 }
 
+function getMissingColumnName(message: string | undefined): string | null {
+  if (!message) {
+    return null
+  }
+
+  const quotedMatch = message.match(/Could not find the '([^']+)' column/i)
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1]
+  }
+
+  const bareMatch = message.match(/column\s+(?:[a-z_]+\.)?([a-z_][a-z0-9_]*)\s+does not exist/i)
+  return bareMatch?.[1] || null
+}
+
+function normalizeCategoryRow(row: Record<string, unknown>) {
+  return {
+    ...row,
+    name: String(row.name || '').trim(),
+    description: row.description ?? null,
+    display_order: Number(row.display_order ?? row.sort_order ?? 0),
+    is_active: row.is_active ?? true,
+  }
+}
+
+async function insertCategoryWithFallbacks(
+  supabase: ReturnType<typeof getSupabase>,
+  payload: Record<string, unknown>,
+) {
+  let nextPayload = { ...payload }
+  let lastError: { message?: string } | null = null
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const result = await supabase.from('categories').insert([nextPayload]).select().single()
+
+    if (!result.error) {
+      return result.data ? normalizeCategoryRow(result.data as Record<string, unknown>) : null
+    }
+
+    lastError = result.error
+    const missingColumn = getMissingColumnName(result.error.message)
+    if (!missingColumn || !(missingColumn in nextPayload)) {
+      throw result.error
+    }
+
+    const { [missingColumn]: _removed, ...rest } = nextPayload
+    nextPayload = rest
+  }
+
+  throw lastError || new Error('Failed to create category')
+}
+
 function getFallbackCategories() {
   return hardcodedCategories.map((cat, index) => ({
     id: cat.id,
@@ -77,43 +128,13 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase()
 
-    // Check if the categories table exists
-    console.log('[v0] Checking if categories table exists...')
-    const { error: tableCheckError } = await supabase
-      .from('categories')
-      .select('id')
-      .limit(1)
-
-    if (tableCheckError) {
-      console.error('[v0] Table check error:', tableCheckError)
-      if (tableCheckError.message?.includes('relation "public.categories" does not exist') ||
-          tableCheckError.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Categories table does not exist. Please create the table in Supabase SQL Editor with: CREATE TABLE categories (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name VARCHAR(100) NOT NULL UNIQUE, description TEXT, display_order INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)' },
-          { status: 500 }
-        )
-      }
-    } else {
-      console.log('[v0] Categories table exists')
-    }
-
-    const insertRow = async () => {
-      return await supabase
-        .from('categories')
-        .insert([{ name, description, display_order }])
-        .select()
-    }
-
-    const { data, error } = await insertRow()
-
-    console.log('[v0] Insert result:', { data, error })
-
-    if (error) {
-      console.error('[v0] Supabase insert error:', error)
-      throw error
-    }
-
-    const inserted = Array.isArray(data) ? data[0] : data
+    const inserted = await insertCategoryWithFallbacks(supabase, {
+      name: String(name).trim(),
+      description: description ? String(description).trim() : null,
+      display_order: Number(display_order) || 0,
+      sort_order: Number(display_order) || 0,
+      is_active: true,
+    })
 
     console.log('[v0] Category created successfully:', inserted)
 

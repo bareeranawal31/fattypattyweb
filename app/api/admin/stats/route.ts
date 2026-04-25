@@ -40,7 +40,7 @@ export async function GET() {
     // Get today's orders
     const { data: todayOrders, error: todayError } = await supabase
       .from('orders')
-      .select('total, status')
+      .select('*')
       .gte('created_at', todayISO)
 
     if (todayError) throw todayError
@@ -61,7 +61,11 @@ export async function GET() {
     if (totalError) throw totalError
 
     // Calculate stats
-    const todayRevenue = todayOrders?.reduce((sum, o) => sum + (o.total || 0), 0) || 0
+    const todayRevenue = todayOrders?.reduce((sum, o) => {
+      const row = o as Record<string, unknown>
+      const amount = Number(row.total ?? row.total_amount ?? 0)
+      return sum + (Number.isFinite(amount) ? amount : 0)
+    }, 0) || 0
     const todayOrdersCount = todayOrders?.length || 0
     const completedTodayCount = todayOrders?.filter(o => 
       ['delivered', 'picked_up'].includes(o.status)

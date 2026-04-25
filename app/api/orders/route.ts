@@ -94,6 +94,13 @@ function normalizeEmail(email: string | null | undefined): string | null {
   return email?.trim().toLowerCase() || null
 }
 
+function generateOrderNumber() {
+  const now = new Date()
+  const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+  const randomPart = Math.random().toString(36).slice(2, 7).toUpperCase()
+  return `FP-${datePart}-${randomPart}`
+}
+
 async function insertOrderWithFallbacks(
   supabase: SupabaseClient,
   payload: Record<string, unknown>,
@@ -454,6 +461,7 @@ export async function POST(request: Request) {
 
     // Create the order
     const orderInsertPayload = {
+      order_number: generateOrderNumber(),
       user_id: user?.id || null,
       customer_name: body.customerName,
       customer_email: normalizedCustomerEmail,
