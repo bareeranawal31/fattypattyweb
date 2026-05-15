@@ -23,6 +23,7 @@ export interface AdminSettings {
   isAcceptingOrders: boolean
   isDeliveryEnabled: boolean
   isPickupEnabled: boolean
+  isLoyaltyPaused: boolean
   coupons: AdminCoupon[]
 }
 
@@ -39,6 +40,7 @@ export const defaultAdminSettings: AdminSettings = {
   isAcceptingOrders: true,
   isDeliveryEnabled: true,
   isPickupEnabled: true,
+  isLoyaltyPaused: false,
   coupons: [
     { id: 'c1', code: 'SAVE10', type: 'percentage', value: 10, isActive: true },
     { id: 'c2', code: 'WELCOME100', type: 'fixed', value: 100, isActive: true },
@@ -57,6 +59,7 @@ export function parseAdminSettings(raw: string | null): AdminSettings {
       ...defaultAdminSettings,
       ...parsed,
       coupons: parsed.coupons && parsed.coupons.length > 0 ? parsed.coupons : defaultAdminSettings.coupons,
+      isLoyaltyPaused: parsed.isLoyaltyPaused ?? defaultAdminSettings.isLoyaltyPaused,
     }
   } catch {
     return defaultAdminSettings

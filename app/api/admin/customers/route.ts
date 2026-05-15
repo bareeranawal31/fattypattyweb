@@ -143,15 +143,25 @@ export async function GET(request: Request) {
           )
 
           const derivedPoints = matchedOrders.reduce((sum, order) => {
+            const explicitEarned = Number(order.loyalty_points_earned || order.loyaltyPointsEarned || 0)
+            if (Number.isFinite(explicitEarned) && explicitEarned > 0) {
+              return sum + explicitEarned
+            }
+
             const total = Number(order.total || 0)
             return sum + (total >= LOYALTY_MIN_ORDER_AMOUNT ? LOYALTY_FIXED_POINTS : 0)
+          }, 0)
+
+          const redeemedPoints = matchedOrders.reduce((sum, order) => {
+            const redeemed = Number(order.loyalty_points_redeemed || order.loyaltyPointsRedeemed || 0)
+            return sum + (Number.isFinite(redeemed) ? redeemed : 0)
           }, 0)
 
           statsByCustomer.set(id, {
             totalOrders: matchedOrders.length,
             totalSpent: matchedOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0),
           })
-          loyaltyByCustomer.set(id, Math.max(0, derivedPoints))
+          loyaltyByCustomer.set(id, Math.max(0, derivedPoints - redeemedPoints))
         })
       } catch (error) {
         console.warn('Orders query threw, continuing without order aggregates:', error)
@@ -177,6 +187,31 @@ export async function GET(request: Request) {
         created_at: publicUser?.created_at || profile?.created_at || authUser?.created_at || new Date(0).toISOString(),
       }
     }).filter((row) => row.email)
+
+    const rowsByEmail = new Map<string, (typeof rows)[number]>()
+    rows.forEach((row) => {
+      const emailKey = row.email.trim().toLowerCase()
+      const existing = rowsByEmail.get(emailKey)
+
+      if (!existing) {
+        rowsByEmail.set(emailKey, row)
+        return
+      }
+
+      rowsByEmail.set(emailKey, {
+        ...existing,
+        name: existing.name || row.name,
+        phone: existing.phone || row.phone,
+        loyalty_points: Math.max(existing.loyalty_points, row.loyalty_points),
+        is_active: existing.is_active || row.is_active,
+        created_at:
+          new Date(existing.created_at).getTime() >= new Date(row.created_at).getTime()
+            ? existing.created_at
+            : row.created_at,
+      })
+    })
+
+    rows = Array.from(rowsByEmail.values())
 
     if (status !== 'all') {
       const active = status === 'active'

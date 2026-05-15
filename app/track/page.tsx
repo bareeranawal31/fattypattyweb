@@ -16,7 +16,8 @@ import {
   Phone,
   ArrowLeft,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  XCircle,
 } from 'lucide-react'
 import { toast } from '@/lib/notify'
 import { useAdminSettings } from '@/lib/admin-settings'
@@ -208,6 +209,7 @@ function OrderTrackingContent() {
   const [phone, setPhone] = useState(searchParams.get('phone') || '')
   const [order, setOrder] = useState<Order | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isCancelling, setIsCancelling] = useState(false)
   const [hasSearched, setHasSearched] = useState(false)
 
   // Auto-search if query params are provided
@@ -284,6 +286,56 @@ function OrderTrackingContent() {
   const handleRefresh = () => {
     if (order) {
       handleSearch()
+    }
+  }
+
+  const handleCancelOrder = async () => {
+    if (!order || order.status !== 'pending') {
+      toast.error('Only pending orders can be cancelled')
+      return
+    }
+
+    setIsCancelling(true)
+    try {
+      const response = await fetch('/api/orders/track', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderNumber: order.order_number,
+          phone,
+          reason: 'Cancelled from tracking page',
+        }),
+      })
+
+      const result = await response.json().catch(() => ({}))
+
+      if (!response.ok || result.error) {
+        throw new Error(result.error || 'Failed to cancel order')
+      }
+
+      setOrder((current) =>
+        current
+          ? {
+              ...current,
+              status: 'cancelled',
+              status_history: [
+                ...current.status_history,
+                {
+                  id: `cancel-${Date.now()}`,
+                  status: 'cancelled',
+                  notes: 'Cancelled from tracking page',
+                  created_at: new Date().toISOString(),
+                },
+              ],
+            }
+          : current,
+      )
+      toast.success('Order cancelled successfully')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to cancel order'
+      toast.error(message)
+    } finally {
+      setIsCancelling(false)
     }
   }
 
@@ -394,6 +446,21 @@ function OrderTrackingContent() {
                 <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
                 Refresh Status
               </button>
+
+              {order.status === 'pending' && (
+                <button
+                  onClick={handleCancelOrder}
+                  disabled={isCancelling}
+                  className="mt-3 flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+                >
+                  {isCancelling ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <XCircle className="h-3.5 w-3.5" />
+                  )}
+                  Cancel Order
+                </button>
+              )}
             </div>
 
             {/* Status Progress */}

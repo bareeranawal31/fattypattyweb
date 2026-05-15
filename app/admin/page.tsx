@@ -9,8 +9,11 @@ import {
   TrendingUp,
   ArrowRight,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Bell,
 } from 'lucide-react'
+
+const ALL_TICKETS_KEY = 'support-tickets:all'
 
 interface Stats {
   todayRevenue: number
@@ -18,6 +21,8 @@ interface Stats {
   pendingOrders: number
   totalOrders: number
   completedToday: number
+  totalLoyaltyPoints?: number
+  redeemedLoyaltyPoints?: number
 }
 
 interface Order {
@@ -34,49 +39,33 @@ interface Order {
   createdAt?: string
 }
 
-const LOCAL_ORDERS_KEY = 'orders'
-
-function normalizeOrder(order: Order) {
-  return {
-    id: String(order.id || order.order_number || Date.now()),
-    order_number: String(order.order_number || order.id || `FP-${Date.now()}`),
-    customer_name: order.customer_name || order.customerName || 'Unknown',
-    status: String(order.status || 'pending').toLowerCase(),
-    total_amount: Number(order.total_amount ?? order.total ?? 0),
-    order_type: order.order_type || order.orderType || 'delivery',
-    created_at: order.created_at || order.createdAt || new Date().toISOString(),
-  }
-}
-
-function mergeOrders(primary: Order[], fallback: Order[]) {
-  const merged = [...primary, ...fallback].map(normalizeOrder)
-  return Array.from(new Map(merged.map((order) => [order.order_number || order.id, order])).values())
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+interface NotificationItem {
+  id: string
+  type: 'order' | 'support'
+  title: string
+  message: string
+  status: string
+  created_at: string
+  href: string
 }
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [recentOrders, setRecentOrders] = useState<Order[]>([])
+  const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   const fetchData = async () => {
     setIsLoading(true)
     try {
-      const localOrders: Order[] = (() => {
-        try {
-          return JSON.parse(localStorage.getItem(LOCAL_ORDERS_KEY) || '[]') as Order[]
-        } catch {
-          return []
-        }
-      })()
-
       // Try fetching from API first
       let apiSuccess = false
-      let apiOrders: Order[] = []
       try {
-        const [statsResponse, ordersResponse] = await Promise.all([
+        const [statsResponse, ordersResponse, customersResponse, notificationsResponse] = await Promise.all([
           fetch('/api/admin/stats'),
           fetch('/api/admin/orders?limit=5'),
+          fetch('/api/admin/customers?status=all'),
+          fetch('/api/admin/notifications'),
         ])
 
         if (statsResponse.ok) {
@@ -89,37 +78,134 @@ export default function AdminDashboard() {
 
         if (ordersResponse.ok) {
           const ordersData = await ordersResponse.json()
-          if (Array.isArray(ordersData.data)) {
-            apiOrders = ordersData.data as Order[]
+          if (ordersData.data) {
+            const normalizedOrders = ordersData.data.map((order: Order) => ({
+              id: String(order.id),
+              order_number: order.order_number,
+              customer_name: order.customer_name || order.customerName || 'Unknown',
+              status: order.status || 'pending',
+              total_amount: order.total_amount || order.total || 0,
+              order_type: order.order_type || order.orderType || 'delivery',
+              created_at: order.created_at || order.createdAt || new Date().toISOString(),
+            }))
+            setRecentOrders(normalizedOrders.slice(0, 5))
+          }
+        }
+
+        if (customersResponse.ok) {
+          const customersData = await customersResponse.json()
+          if (Array.isArray(customersData.data)) {
+            const loyaltyTotals = customersData.data.reduce((acc: { current: number; redeemed: number }, customer: { loyalty_points?: number; total_points_redeemed?: number }) => {
+              acc.current += Number(customer.loyalty_points || 0)
+              acc.redeemed += Number(customer.total_points_redeemed || 0)
+              return acc
+            }, { current: 0, redeemed: 0 })
+
+            if (statsData?.data) {
+              setStats({
+                ...statsData.data,
+                totalLoyaltyPoints: loyaltyTotals.current,
+                redeemedLoyaltyPoints: loyaltyTotals.redeemed,
+              })
+            }
+          }
+        }
+
+        if (notificationsResponse.ok) {
+          const notificationsData = await notificationsResponse.json()
+          if (Array.isArray(notificationsData.data)) {
+            setNotifications(notificationsData.data as NotificationItem[])
           }
         }
       } catch (apiError) {
         console.warn('API fetch failed, falling back to localStorage:', apiError)
       }
 
-      const mergedOrders = mergeOrders(apiOrders, localOrders)
-      setRecentOrders(mergedOrders.slice(0, 5))
+      // Fall back to localStorage if API failed
+      if (!apiSuccess) {
+        const orders = JSON.parse(localStorage.getItem('orders') || '[]')
+        
+        const today = new Date().toDateString()
+        
+        const todaysOrders = orders.filter((order: Order) => {
+          const orderDate = new Date(order.created_at || order.createdAt || '').toDateString()
+          return orderDate === today
+        })
+        
+        const todaysRevenue = todaysOrders.reduce((total: number, order: Order) => {
+          return total + (order.total_amount || order.total || 0)
+        }, 0)
+        
+        const pendingOrders = orders.filter((order: Order) => 
+          (order.status || '').toLowerCase() === 'pending'
+        ).length
+        
+        const totalOrders = orders.length
+        
+        setStats({
+          todayRevenue: todaysRevenue,
+          todayOrders: todaysOrders.length,
+          pendingOrders: pendingOrders,
+          totalOrders: totalOrders,
+          completedToday: todaysOrders.filter((o: Order) => 
+            (o.status || '').toLowerCase() === 'delivered'
+          ).length,
+          totalLoyaltyPoints: 0,
+          redeemedLoyaltyPoints: 0,
+        })
+        
+        const sortedOrders = [...orders].sort((a: Order, b: Order) => {
+          const dateA = new Date(a.created_at || a.createdAt || 0)
+          const dateB = new Date(b.created_at || b.createdAt || 0)
+          return dateB.getTime() - dateA.getTime()
+        }).slice(0, 5)
+        
+        const normalizedOrders = sortedOrders.map((order: Order) => ({
+          id: String(order.id),
+          order_number: order.order_number,
+          customer_name: order.customer_name || order.customerName || 'Unknown',
+          status: order.status || 'pending',
+          total_amount: order.total_amount || order.total || 0,
+          order_type: order.order_type || order.orderType || 'delivery',
+          created_at: order.created_at || order.createdAt || new Date().toISOString(),
+        }))
+        
+        setRecentOrders(normalizedOrders)
 
-      const today = new Date().toDateString()
-      const todaysOrders = mergedOrders.filter((order) => new Date(order.created_at).toDateString() === today)
-      const todaysRevenue = todaysOrders.reduce((total: number, order: Order) => {
-        return total + Number(order.total_amount || 0)
-      }, 0)
-      const pendingOrders = mergedOrders.filter((order) => order.status.toLowerCase() === 'pending').length
-      const totalOrders = mergedOrders.length
+        const supportTickets = JSON.parse(localStorage.getItem(ALL_TICKETS_KEY) || '[]') as Array<{
+          id: string
+          subject: string
+          message: string
+          ticket_type: string
+          status: string
+          created_at: string
+          customer_name?: string | null
+          customer_email?: string
+        }>
 
-      const mergedStats: Stats = {
-        todayRevenue: todaysRevenue,
-        todayOrders: todaysOrders.length,
-        pendingOrders,
-        totalOrders,
-        completedToday: todaysOrders.filter((order) => ['delivered', 'picked_up'].includes(order.status)).length,
-      }
+        const notificationItems: NotificationItem[] = [
+          ...sortedOrders.map((order: Order) => ({
+            id: `order-${order.id}`,
+            type: 'order' as const,
+            title: `New order ${order.order_number}`,
+            message: `${order.customer_name || order.customerName || 'Customer'} placed a ${order.order_type || order.orderType || 'delivery'} order (${order.status || 'pending'}).`,
+            status: order.status || 'pending',
+            created_at: order.created_at || order.createdAt || new Date().toISOString(),
+            href: `/admin/orders?order=${order.id}`,
+          })),
+          ...supportTickets.map((ticket) => ({
+            id: `ticket-${ticket.id}`,
+            type: 'support' as const,
+            title: ticket.subject,
+            message: `${ticket.customer_name || ticket.customer_email || 'Customer'} sent a ${ticket.ticket_type} request (${ticket.status}).`,
+            status: ticket.status,
+            created_at: ticket.created_at,
+            href: '/admin/support',
+          })),
+        ]
 
-      if (apiSuccess || mergedOrders.length > 0) {
-        setStats(mergedStats)
-      } else if (!apiSuccess) {
-        setStats(mergedStats)
+        notificationItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        setNotifications(notificationItems.slice(0, 10))
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error)
@@ -244,6 +330,57 @@ export default function AdminDashboard() {
             </div>
           </div>
         </div>
+
+        <div className="rounded-xl border border-border bg-card p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">Loyalty Points</p>
+              <p className="mt-1 text-2xl font-bold text-foreground">
+                {stats?.totalLoyaltyPoints || 0}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Redeemed: {stats?.redeemedLoyaltyPoints || 0}
+              </p>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100">
+              <RefreshCw className="h-6 w-6 text-amber-600" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border p-6">
+          <h2 className="text-lg font-bold text-foreground">Notifications</h2>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Bell className="h-4 w-4" />
+            Latest orders and support requests
+          </div>
+        </div>
+        {notifications.length === 0 ? (
+          <div className="p-8 text-center text-sm text-muted-foreground">No recent notifications</div>
+        ) : (
+          <div className="divide-y divide-border">
+            {notifications.map((notification) => (
+              <Link
+                key={notification.id}
+                href={notification.href}
+                className="block p-4 transition-colors hover:bg-muted/50"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-semibold text-foreground">{notification.title}</p>
+                    <p className="text-sm text-muted-foreground">{notification.message}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs uppercase text-muted-foreground">{notification.type}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(notification.created_at).toLocaleString()}</p>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Recent Orders */}

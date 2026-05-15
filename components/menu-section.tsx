@@ -4,12 +4,12 @@ import { useState, useMemo, useEffect } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useSearchParams } from 'next/navigation'
-import { Star, Heart } from 'lucide-react'
+import { Star } from 'lucide-react'
 import { menuItems as defaultMenuItems, categories as defaultCategories } from '@/lib/menu-data'
 import type { MenuItem, Category } from '@/lib/menu-data'
-import { cn } from '@/lib/utils'
-import { useCustomerAuth } from '@/lib/customer-auth-context'
 import { SignInBenefitsPrompt } from '@/components/signin-benefits-prompt'
+import { useCustomerAuth } from '@/lib/customer-auth-context'
+import { cn } from '@/lib/utils'
 
 interface MenuSectionProps {
   onItemClick: (item: MenuItem) => void
@@ -74,15 +74,14 @@ function mapStoredProductToMenuItem(product: StoredMenuItem): MenuItem {
 
 export function MenuSection({ onItemClick }: MenuSectionProps) {
   const router = useRouter()
-  const { user, loading: authLoading } = useCustomerAuth()
+  const { user } = useCustomerAuth()
   const searchParams = useSearchParams()
   const initialCategory = searchParams.get('category') || 'all'
   const [activeCategory, setActiveCategory] = useState<string>(initialCategory)
+  const [pendingQuickAddItem, setPendingQuickAddItem] = useState<MenuItem | null>(null)
   const [menuItems, setMenuItems] = useState<MenuItem[]>(defaultMenuItems)
   const [categories, setCategories] = useState<Category[]>(defaultCategories)
   const [productRatings, setProductRatings] = useState<Record<string, number>>({})
-  const [pendingQuickAddItem, setPendingQuickAddItem] = useState<MenuItem | null>(null)
-  const [favorites, setFavorites] = useState<Set<string>>(new Set())
 
   // Load products from API with localStorage fallback
   useEffect(() => {
@@ -90,10 +89,16 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
       try {
         // Try to fetch from API first
         const response = await fetch('/api/menu', { cache: 'no-store' })
+        const responseText = await response.text()
         if (!response.ok) {
-          throw new Error('Failed to fetch menu data')
+          throw new Error(`Failed to fetch menu data: ${response.status}`)
         }
-        const data = await response.json()
+        let data: any
+        try {
+          data = JSON.parse(responseText)
+        } catch (error) {
+          throw new Error('Invalid JSON response from /api/menu')
+        }
 
         if (data.data?.items && data.data.items.length > 0) {
           // Convert API items to MenuItem format
@@ -220,62 +225,6 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
     return () => window.removeEventListener('storage', onStorage)
   }, [])
 
-  // Load favorites for logged-in users
-  useEffect(() => {
-    if (!user) {
-      setFavorites(new Set())
-      return
-    }
-
-    const loadFavorites = async () => {
-      try {
-        const response = await fetch('/api/customer/favorites', { cache: 'no-store' })
-        if (response.ok) {
-          const data = await response.json()
-          if (data.data) {
-            const favIds = new Set(data.data.map((fav: { menu_item_id: string }) => fav.menu_item_id))
-            setFavorites(favIds)
-          }
-        }
-      } catch (error) {
-        console.error('Error loading favorites:', error)
-      }
-    }
-
-    loadFavorites()
-  }, [user])
-
-  const toggleFavorite = async (menuItemId: string) => {
-    if (!user) return
-
-    const isFav = favorites.has(menuItemId)
-    const newFavorites = new Set(favorites)
-    if (isFav) {
-      newFavorites.delete(menuItemId)
-    } else {
-      newFavorites.add(menuItemId)
-    }
-    setFavorites(newFavorites)
-
-    try {
-      const method = isFav ? 'DELETE' : 'POST'
-      const response = await fetch(`/api/customer/favorites${isFav ? `/${menuItemId}` : ''}`, {
-        method,
-        headers: isFav ? {} : { 'Content-Type': 'application/json' },
-        body: isFav ? undefined : JSON.stringify({ menu_item_id: menuItemId }),
-      })
-      if (!response.ok) {
-        // Revert on error
-        setFavorites(favorites)
-        console.error('Failed to update favorite')
-      }
-    } catch (error) {
-      // Revert on error
-      setFavorites(favorites)
-      console.error('Error updating favorite:', error)
-    }
-  }
-
   useEffect(() => {
     const cat = searchParams.get('category')
     if (cat) {
@@ -289,21 +238,19 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
 
   const handleQuickAdd = (e: React.MouseEvent, item: MenuItem) => {
     e.stopPropagation()
-    if (authLoading || user) {
+    if (user) {
       onItemClick(item)
-      return
+    } else {
+      setPendingQuickAddItem(item)
     }
-
-    setPendingQuickAddItem(item)
   }
 
   const handleCardClick = (item: MenuItem) => {
-    if (authLoading || user) {
+    if (user) {
       onItemClick(item)
-      return
+    } else {
+      setPendingQuickAddItem(item)
     }
-
-    setPendingQuickAddItem(item)
   }
 
   const filteredItems = useMemo(() => {
@@ -324,20 +271,6 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
 
   return (
     <>
-      <SignInBenefitsPrompt
-        open={Boolean(pendingQuickAddItem) && !authLoading}
-        onClose={() => setPendingQuickAddItem(null)}
-        onSignIn={() => {
-          setPendingQuickAddItem(null)
-          router.push(`/auth/customer?returnTo=${encodeURIComponent('/menu')}`)
-        }}
-        onContinueGuest={() => {
-          if (pendingQuickAddItem) {
-            onItemClick(pendingQuickAddItem)
-          }
-          setPendingQuickAddItem(null)
-        }}
-      />
       <section id="menu" className="site-section bg-background py-14 lg:py-20">
         <div className="site-container px-4 lg:px-8">
         <div className="section-head mb-10">
@@ -393,8 +326,9 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
                 {group.items.map((item) => (
                   <div
                     key={item.id}
+                    id={`menu-item-${item.id}`}
                     onClick={() => handleCardClick(item)}
-                    className="ui-card group cursor-pointer overflow-hidden rounded-2xl border-border/80"
+                    className="ui-card group cursor-pointer overflow-hidden rounded-2xl border-border/80 scroll-mt-32"
                   >
                     <div className="relative h-44 w-full overflow-hidden">
                       <Image
@@ -402,6 +336,10 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
                         alt={item.name}
                         fill
                         className="object-cover transition-transform duration-500 group-hover:scale-110"
+                        onError={(event) => {
+                          const target = event.currentTarget as HTMLImageElement
+                          target.src = '/images/placeholder.jpg'
+                        }}
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-[#1a1a1a]/40 via-transparent to-transparent" />
                       <div className="absolute right-3 top-3 flex items-center gap-1 rounded-full bg-[#1a1a1a]/70 px-2 py-0.5 backdrop-blur-sm">
@@ -412,24 +350,6 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
                         <span className="absolute left-3 top-3 rounded-full bg-brand-gold px-2.5 py-0.5 text-xs font-bold text-[#1a1a1a]">
                           Best Seller
                         </span>
-                      )}
-                      {user && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            toggleFavorite(item.id)
-                          }}
-                          className="absolute right-3 bottom-3 flex items-center justify-center w-8 h-8 rounded-full bg-[#1a1a1a]/70 backdrop-blur-sm hover:bg-[#1a1a1a]/90 transition-colors"
-                        >
-                          <Heart
-                            className={cn(
-                              'h-4 w-4',
-                              favorites.has(item.id)
-                                ? 'fill-red-500 text-red-500'
-                                : 'text-white'
-                            )}
-                          />
-                        </button>
                       )}
                     </div>
 
@@ -466,6 +386,20 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
         </div>
       </section>
 
+      <SignInBenefitsPrompt
+        open={Boolean(pendingQuickAddItem)}
+        onClose={() => setPendingQuickAddItem(null)}
+        onSignIn={() => {
+          setPendingQuickAddItem(null)
+          router.push(`/auth/customer?returnTo=${encodeURIComponent('/menu')}`)
+        }}
+        onContinueGuest={() => {
+          if (pendingQuickAddItem) {
+            onItemClick(pendingQuickAddItem)
+          }
+          setPendingQuickAddItem(null)
+        }}
+      />
     </>
   )
 }

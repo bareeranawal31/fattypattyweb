@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Navbar } from '@/components/navbar'
 import { Hero } from '@/components/hero'
+import { MealSuggester } from '@/components/meal-suggester'
 import { Categories } from '@/components/categories'
 import { PopularItems } from '@/components/popular-items'
 import { Promotions } from '@/components/promotions'
@@ -67,15 +68,18 @@ function HomePageContent() {
           <Categories />
         </div>
         <div data-scroll-animate="fade-in-up" data-scroll-delay="0.2s">
-          <PopularItems onItemClick={setSelectedItem} />
+          <MealSuggester onItemClick={setSelectedItem} />
         </div>
         <div data-scroll-animate="fade-in-up" data-scroll-delay="0.3s">
-          <Promotions onDealClick={setSelectedDeal} />
+          <PopularItems onItemClick={setSelectedItem} />
         </div>
         <div data-scroll-animate="fade-in-up" data-scroll-delay="0.4s">
-          <Reviews />
+          <Promotions onDealClick={setSelectedDeal} />
         </div>
         <div data-scroll-animate="fade-in-up" data-scroll-delay="0.5s">
+          <Reviews />
+        </div>
+        <div data-scroll-animate="fade-in-up" data-scroll-delay="0.6s">
           <Contact />
         </div>
       </main>
