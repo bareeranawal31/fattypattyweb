@@ -8,18 +8,40 @@ import { createClient } from '@/lib/supabase/client'
 const ADMIN_EMAIL = "fattypattyadmin@gmail.com"
 const ADMIN_PASSWORD = "fatty@14"
 
+interface StaffAccount {
+  name: string
+  email: string
+  password: string
+  isActive: boolean
+  updatedAt: string
+}
+
 export default function AdminLoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [activeRole, setActiveRole] = useState<'admin' | 'staff'>('admin')
 
   // Check if already logged in
   useEffect(() => {
-    if (typeof window !== 'undefined' && sessionStorage.getItem('adminAuth') === 'true') {
-      window.location.href = '/admin'
+    if (typeof window !== 'undefined') {
+      const userAuth = sessionStorage.getItem('fpUser')
+      if (userAuth) {
+        const user = JSON.parse(userAuth)
+        window.location.href = user.role === 'staff' ? '/admin/staff-dashboard' : '/admin'
+      }
     }
   }, [])
+
+  const getStaffAccount = (): StaffAccount | null => {
+    try {
+      const data = localStorage.getItem('fp_staff_account')
+      return data ? JSON.parse(data) : null
+    } catch (e) {
+      return null
+    }
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -28,44 +50,90 @@ export default function AdminLoginPage() {
     const emailInput = email.trim().toLowerCase()
     const passwordInput = password.trim()
 
-    if (emailInput !== ADMIN_EMAIL.toLowerCase()) {
-      toast.error('Only admin email is allowed')
-      setIsLoading(false)
-      return
-    }
-
-    // Legacy fallback remains for compatibility.
-    if (passwordInput === ADMIN_PASSWORD) {
-      sessionStorage.setItem('adminAuth', 'true')
-      toast.success('Signed in successfully')
-      window.location.href = '/admin'
-      return
-    }
-
-    let error: { message: string } | null = null
     try {
-      const supabase = createClient()
-      const authResult = await supabase.auth.signInWithPassword({
-        email: emailInput,
-        password: passwordInput,
-      })
-      error = authResult.error
-    } catch {
-      toast.error('Authentication is unavailable right now. Please try again.')
+      if (activeRole === 'admin') {
+        // Admin Login
+        if (emailInput !== ADMIN_EMAIL.toLowerCase()) {
+          toast.error('Only admin email is allowed')
+          setIsLoading(false)
+          return
+        }
+
+        // Legacy fallback remains for compatibility.
+        if (passwordInput === ADMIN_PASSWORD) {
+          sessionStorage.setItem('fpUser', JSON.stringify({
+            name: 'Admin',
+            role: 'admin',
+            email: emailInput,
+            loginTime: new Date().toISOString()
+          }))
+          toast.success('Signed in successfully')
+          window.location.href = '/admin'
+          return
+        }
+
+        let error: { message: string } | null = null
+        try {
+          const supabase = createClient()
+          const authResult = await supabase.auth.signInWithPassword({
+            email: emailInput,
+            password: passwordInput,
+          })
+          error = authResult.error
+        } catch {
+          toast.error('Authentication is unavailable right now. Please try again.')
+          setIsLoading(false)
+          return
+        }
+
+        if (!error) {
+          sessionStorage.setItem('fpUser', JSON.stringify({
+            name: 'Admin',
+            role: 'admin',
+            email: emailInput,
+            loginTime: new Date().toISOString()
+          }))
+          toast.success('Signed in successfully')
+          window.location.href = '/admin'
+          return
+        }
+
+        toast.error('Invalid admin credentials')
+      } else {
+        // Staff Login
+        const staffAccount = getStaffAccount()
+
+        if (!staffAccount) {
+          toast.error('Staff account not configured yet. Please contact your Admin.')
+          setIsLoading(false)
+          return
+        }
+
+        if (staffAccount.isActive === false) {
+          toast.error('Your account has been deactivated. Please contact Admin.')
+          setIsLoading(false)
+          return
+        }
+
+        if (emailInput === staffAccount.email.toLowerCase() && passwordInput === staffAccount.password) {
+          sessionStorage.setItem('fpUser', JSON.stringify({
+            name: staffAccount.name,
+            role: 'staff',
+            email: emailInput,
+            loginTime: new Date().toISOString()
+          }))
+          toast.success('Signed in successfully')
+          window.location.href = '/admin/staff-dashboard'
+          return
+        }
+
+        toast.error('Invalid staff credentials')
+      }
+    } finally {
       setIsLoading(false)
-      return
     }
-
-    if (!error) {
-      sessionStorage.setItem('adminAuth', 'true')
-      toast.success('Signed in successfully')
-      window.location.href = '/admin'
-      return
-    }
-
-    toast.error('Invalid credentials')
-    setIsLoading(false)
   }
+
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -74,10 +142,42 @@ export default function AdminLoginPage() {
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-red">
             <span className="text-2xl font-bold text-primary-foreground">FP</span>
           </div>
-          <h1 className="text-2xl font-bold text-foreground">Admin Login</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Sign in to access the admin dashboard
+          <h1 className="text-2xl font-bold text-foreground">Fatty Patty</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Portal
           </p>
+        </div>
+
+        {/* Role Tabs */}
+        <div className="mb-6 flex gap-2 rounded-xl bg-muted p-1">
+          <button
+            onClick={() => {
+              setActiveRole('admin')
+              setEmail('')
+              setPassword('')
+            }}
+            className={`flex-1 rounded-lg py-2 px-3 text-sm font-medium transition-all ${
+              activeRole === 'admin'
+                ? 'bg-brand-red text-primary-foreground shadow-md'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            👑 Admin
+          </button>
+          <button
+            onClick={() => {
+              setActiveRole('staff')
+              setEmail('')
+              setPassword('')
+            }}
+            className={`flex-1 rounded-lg py-2 px-3 text-sm font-medium transition-all ${
+              activeRole === 'staff'
+                ? 'bg-brand-red text-primary-foreground shadow-md'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            👤 Staff
+          </button>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
@@ -91,7 +191,7 @@ export default function AdminLoginPage() {
                 id="email"
                 type="email"
                 required
-                placeholder="admin@fattypatty.com"
+                placeholder={activeRole === 'admin' ? 'admin@fattypatty.com' : 'staff@fattypatty.com'}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full rounded-xl border border-border bg-background py-3 pl-11 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand-red focus:outline-none focus:ring-2 focus:ring-brand-red/20"

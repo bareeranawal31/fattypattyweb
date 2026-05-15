@@ -19,16 +19,23 @@ import {
 import { cn } from '@/lib/utils'
 
 const navItems = [
-  { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/admin/orders', label: 'Orders', icon: ShoppingBag },
-  { href: '/admin/categories', label: 'Categories', icon: UtensilsCrossed },
-  { href: '/admin/menu', label: 'Menu', icon: UtensilsCrossed },
-  { href: '/admin/deals', label: 'Deals', icon: Tag },
-  { href: '/admin/reviews', label: 'Reviews', icon: MessageSquare },
-  { href: '/admin/support', label: 'Support', icon: MessageSquare },
-  { href: '/admin/customers', label: 'Customers', icon: Users },
-  { href: '/admin/settings', label: 'Settings', icon: Settings },
+  { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, adminOnly: false },
+  { href: '/admin/orders', label: 'Orders', icon: ShoppingBag, adminOnly: false },
+  { href: '/admin/categories', label: 'Categories', icon: UtensilsCrossed, adminOnly: true },
+  { href: '/admin/menu', label: 'Menu', icon: UtensilsCrossed, adminOnly: true },
+  { href: '/admin/deals', label: 'Deals', icon: Tag, adminOnly: true },
+  { href: '/admin/reviews', label: 'Reviews', icon: MessageSquare, adminOnly: true },
+  { href: '/admin/support', label: 'Support', icon: MessageSquare, adminOnly: false },
+  { href: '/admin/customers', label: 'Customers', icon: Users, adminOnly: true },
+  { href: '/admin/settings', label: 'Settings', icon: Settings, adminOnly: true },
 ]
+
+interface User {
+  name: string
+  role: 'admin' | 'staff'
+  email: string
+  loginTime: string
+}
 
 export default function AdminLayout({
   children,
@@ -39,8 +46,10 @@ export default function AdminLayout({
   const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [user, setUser] = useState<User | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
   const isAdminAuthRoute = pathname.startsWith('/admin/login')
+  const isStaffDashboard = pathname === '/admin/staff-dashboard'
 
   // Check authentication on mount and route changes
   useEffect(() => {
@@ -49,21 +58,43 @@ export default function AdminLayout({
       return
     }
     
-    const isAuth = sessionStorage.getItem('adminAuth') === 'true'
-    if (!isAuth) {
-      router.push('/admin/login')
-    } else {
+    try {
+      const userJson = sessionStorage.getItem('fpUser')
+      if (!userJson) {
+        router.push('/admin/login')
+        return
+      }
+      
+      const userData = JSON.parse(userJson)
+      setUser(userData)
       setIsAuthenticated(true)
-    }
-  }, [isAdminAuthRoute, pathname, router])
 
-  // Don't show sidebar on login page
-  if (isAdminAuthRoute) {
+      // Redirect staff to staff dashboard if trying to access main admin
+      if (userData.role === 'staff' && pathname === '/admin' && !isStaffDashboard) {
+        router.push('/admin/staff-dashboard')
+      }
+
+      // Redirect staff away from admin-only pages
+      if (userData.role === 'staff') {
+        const isAdminOnly = navItems.some(
+          item => item.adminOnly && (pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href)))
+        )
+        if (isAdminOnly) {
+          router.push('/admin/staff-dashboard')
+        }
+      }
+    } catch (error) {
+      router.push('/admin/login')
+    }
+  }, [isAdminAuthRoute, pathname, router, isStaffDashboard])
+
+  // Don't show sidebar on login page or staff dashboard
+  if (isAdminAuthRoute || isStaffDashboard) {
     return <>{children}</>
   }
 
   // Show loading while checking auth
-  if (isAuthenticated === null) {
+  if (isAuthenticated === null || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-muted-foreground">Loading...</div>
@@ -73,7 +104,8 @@ export default function AdminLayout({
 
   const handleLogout = () => {
     setIsLoggingOut(true)
-    sessionStorage.removeItem('adminAuth')
+    sessionStorage.removeItem('fpUser')
+    sessionStorage.removeItem('adminAuth') // Legacy cleanup
     router.push('/admin/login')
   }
 
@@ -97,7 +129,10 @@ export default function AdminLayout({
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-red">
               <span className="text-sm font-bold text-primary-foreground">FP</span>
             </div>
-            <span className="font-bold text-foreground">Admin</span>
+            <div className="flex flex-col gap-0">
+              <span className="font-bold text-foreground text-sm">Fatty Patty</span>
+              <span className="text-xs text-muted-foreground">{user.role === 'admin' ? '👑 Admin' : '👤 Staff'}</span>
+            </div>
           </Link>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -109,6 +144,11 @@ export default function AdminLayout({
 
         <nav className="p-4 space-y-1">
           {navItems.map((item) => {
+            // Hide admin-only items for staff
+            if (item.adminOnly && user.role === 'staff') {
+              return null
+            }
+
             const isActive = pathname === item.href || 
               (item.href !== '/admin' && pathname.startsWith(item.href))
             const Icon = item.icon
@@ -161,7 +201,10 @@ export default function AdminLayout({
           >
             <Menu className="h-5 w-5" />
           </button>
-          <span className="font-bold text-foreground">Fatty Patty Admin</span>
+          <div className="flex flex-col gap-0">
+            <span className="font-bold text-foreground text-sm">Fatty Patty</span>
+            <span className="text-xs text-muted-foreground">{user.role === 'admin' ? '👑 Admin' : '👤 Staff'}</span>
+          </div>
         </header>
 
         <main className="p-4 lg:p-8">

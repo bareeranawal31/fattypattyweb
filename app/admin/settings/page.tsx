@@ -26,6 +26,15 @@ export default function AdminSettingsPage() {
 
   const [isSaving, setIsSaving] = useState(false)
 
+  // Staff Account Management State
+  const [staffName, setStaffName] = useState('')
+  const [staffEmail, setStaffEmail] = useState('')
+  const [staffPassword, setStaffPassword] = useState('')
+  const [staffPasswordConfirm, setStaffPasswordConfirm] = useState('')
+  const [staffIsActive, setStaffIsActive] = useState(true)
+  const [staffLastUpdated, setStaffLastUpdated] = useState<string | null>(null)
+  const [isStaffSaving, setIsStaffSaving] = useState(false)
+
   useEffect(() => {
     const loadSettings = async () => {
       try {
@@ -42,7 +51,27 @@ export default function AdminSettingsPage() {
     }
 
     loadSettings()
+
+    // Load staff account
+    loadStaffAccount()
   }, [])
+
+  const loadStaffAccount = () => {
+    try {
+      const staffData = localStorage.getItem('fp_staff_account')
+      if (staffData) {
+        const staff = JSON.parse(staffData)
+        setStaffName(staff.name)
+        setStaffEmail(staff.email)
+        setStaffPassword(staff.password)
+        setStaffPasswordConfirm(staff.password)
+        setStaffIsActive(staff.isActive)
+        setStaffLastUpdated(staff.updatedAt)
+      }
+    } catch (error) {
+      // Staff account not yet configured
+    }
+  }
 
   const handleSave = async () => {
     setIsSaving(true)
@@ -105,6 +134,53 @@ export default function AdminSettingsPage() {
       ...prev,
       coupons: prev.coupons.filter((coupon) => coupon.id !== couponId),
     }))
+  }
+
+  const handleSaveStaffAccount = async () => {
+    // Validation
+    if (!staffName.trim()) {
+      toast.error('Staff name is required')
+      return
+    }
+    if (!staffEmail.trim()) {
+      toast.error('Email is required')
+      return
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(staffEmail)) {
+      toast.error('Enter a valid email address')
+      return
+    }
+    if (!staffPassword.trim()) {
+      toast.error('Password is required')
+      return
+    }
+    if (staffPassword.length < 8) {
+      toast.error('Password must be at least 8 characters')
+      return
+    }
+    if (staffPassword !== staffPasswordConfirm) {
+      toast.error('Passwords do not match')
+      return
+    }
+
+    setIsStaffSaving(true)
+    try {
+      const staffAccount = {
+        name: staffName.trim(),
+        email: staffEmail.trim().toLowerCase(),
+        password: staffPassword,
+        isActive: staffIsActive,
+        updatedAt: new Date().toISOString(),
+      }
+      localStorage.setItem('fp_staff_account', JSON.stringify(staffAccount))
+      setStaffLastUpdated(staffAccount.updatedAt)
+      toast.success('Staff account saved successfully')
+    } catch (error) {
+      toast.error('Failed to save staff account')
+    } finally {
+      setIsStaffSaving(false)
+    }
   }
 
   return (
@@ -442,6 +518,107 @@ export default function AdminSettingsPage() {
               className="w-full rounded-lg border border-border bg-muted px-4 py-2.5 text-sm text-muted-foreground"
             />
           </div>
+        </div>
+      </div>
+
+      {/* Staff Account Management */}
+      <div className="rounded-xl border border-border bg-card p-6">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
+            <span className="text-lg">👤</span>
+          </div>
+          <div>
+            <h2 className="font-semibold text-foreground">Staff Account Management</h2>
+            <p className="text-sm text-muted-foreground">Create or update staff login credentials</p>
+          </div>
+        </div>
+
+        {staffLastUpdated && (
+          <div className="mb-4 rounded-lg bg-green-50 border border-green-200 px-4 py-2">
+            <p className="text-sm text-green-700">
+              <span className="font-semibold">Last Updated:</span> {new Date(staffLastUpdated).toLocaleString()}
+            </p>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">Staff Name</label>
+            <input
+              type="text"
+              value={staffName}
+              onChange={(e) => setStaffName(e.target.value)}
+              placeholder="e.g. Ahmed Khan"
+              className="w-full rounded-lg border border-border bg-background px-4 py-2.5 text-sm focus:border-brand-red focus:outline-none focus:ring-2 focus:ring-brand-red/20"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">Email Address</label>
+            <input
+              type="email"
+              value={staffEmail}
+              onChange={(e) => setStaffEmail(e.target.value)}
+              placeholder="staff@fattypatty.com"
+              className="w-full rounded-lg border border-border bg-background px-4 py-2.5 text-sm focus:border-brand-red focus:outline-none focus:ring-2 focus:ring-brand-red/20"
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">Password</label>
+              <input
+                type="password"
+                value={staffPassword}
+                onChange={(e) => setStaffPassword(e.target.value)}
+                placeholder="Min 8 characters"
+                className="w-full rounded-lg border border-border bg-background px-4 py-2.5 text-sm focus:border-brand-red focus:outline-none focus:ring-2 focus:ring-brand-red/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">Confirm Password</label>
+              <input
+                type="password"
+                value={staffPasswordConfirm}
+                onChange={(e) => setStaffPasswordConfirm(e.target.value)}
+                placeholder="Re-enter password"
+                className="w-full rounded-lg border border-border bg-background px-4 py-2.5 text-sm focus:border-brand-red focus:outline-none focus:ring-2 focus:ring-brand-red/20"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-3 block text-sm font-medium text-foreground">Account Status</label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-3">
+                <input
+                  type="radio"
+                  checked={staffIsActive}
+                  onChange={() => setStaffIsActive(true)}
+                  className="h-4 w-4 border-border text-brand-red focus:ring-brand-red"
+                />
+                <span className="text-sm text-foreground">🟢 Active - Staff can login</span>
+              </label>
+              <label className="flex items-center gap-3">
+                <input
+                  type="radio"
+                  checked={!staffIsActive}
+                  onChange={() => setStaffIsActive(false)}
+                  className="h-4 w-4 border-border text-brand-red focus:ring-brand-red"
+                />
+                <span className="text-sm text-foreground">🔴 Deactivated - Staff cannot login</span>
+              </label>
+            </div>
+          </div>
+
+          <button
+            onClick={handleSaveStaffAccount}
+            disabled={isStaffSaving}
+            className="w-full flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-6 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-purple-700 disabled:opacity-50"
+          >
+            <Save className="h-4 w-4" />
+            {isStaffSaving ? 'Saving...' : 'Save Staff Account'}
+          </button>
         </div>
       </div>
 

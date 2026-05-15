@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { 
   DollarSign, 
   ShoppingBag, 
@@ -49,10 +50,35 @@ interface NotificationItem {
   href: string
 }
 
+interface User {
+  role: 'admin' | 'staff'
+  [key: string]: any
+}
+
 export default function AdminDashboard() {
+  const router = useRouter()
+  const [user, setUser] = useState<User | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
   const [recentOrders, setRecentOrders] = useState<Order[]>([])
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Check if user is staff and redirect to staff dashboard
+  useEffect(() => {
+    try {
+      const userJson = sessionStorage.getItem('fpUser')
+      if (userJson) {
+        const userData = JSON.parse(userJson)
+        setUser(userData)
+        if (userData.role === 'staff') {
+          router.push('/admin/staff-dashboard')
+          return
+        }
+      }
+    } catch (error) {
+      // Continue normally
+    }
+  }, [router])
   const [isLoading, setIsLoading] = useState(true)
 
   const fetchData = async () => {
