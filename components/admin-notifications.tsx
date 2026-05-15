@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Bell, ChevronRight, CircleAlert, MessageSquareText, Package, Truck } from 'lucide-react'
+import { BellRing, ChevronRight, CircleAlert, MessageSquareText, Package, Truck } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
@@ -127,11 +127,12 @@ function buildNotifications(
       })
     } else if (previousStatus !== nextStatus) {
       const isDelivered = nextStatus === 'delivered'
+      const isCancelled = nextStatus === 'cancelled'
       notifications.push({
         id: `order-status-${id}-${nextStatus}`,
         kind: isDelivered ? 'delivery' : 'order',
-        title: isDelivered ? `Order ${orderNumber} delivered` : `Order ${orderNumber} updated`,
-        description: `Status changed to ${toOrderStatusLabel(nextStatus)}.`,
+        title: isDelivered ? `Order ${orderNumber} delivered` : isCancelled ? `Order ${orderNumber} cancelled` : `Order ${orderNumber} updated`,
+        description: isCancelled ? 'The order was cancelled.' : `Status changed to ${toOrderStatusLabel(nextStatus)}.`,
         href: `/admin/orders?order=${id}`,
         createdAt,
       })
@@ -151,7 +152,7 @@ function buildNotifications(
       notifications.push({
         id: `support-new-${id}`,
         kind: 'support',
-        title: 'New customer query',
+        title: ticket.ticket_type === 'complaint' ? 'New complaint' : 'New customer query',
         description: subject,
         href: '/admin/support',
         createdAt,
@@ -160,7 +161,7 @@ function buildNotifications(
       notifications.push({
         id: `support-status-${id}-${nextStatus}`,
         kind: 'support',
-        title: 'Support ticket updated',
+        title: ticket.ticket_type === 'complaint' ? 'Complaint updated' : 'Support ticket updated',
         description: `${subject} is now ${toOrderStatusLabel(nextStatus)}.`,
         href: '/admin/support',
         createdAt,
@@ -245,7 +246,7 @@ export function AdminNotifications() {
           className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm transition-colors hover:bg-muted"
           aria-label="Admin notifications"
         >
-          <Bell className="h-5 w-5" />
+          <BellRing className="h-5 w-5" />
           {unreadCount > 0 && (
             <Badge className="absolute -right-1 -top-1 min-w-5 rounded-full bg-brand-red px-1.5 py-0 text-[10px] text-white">
               {unreadCount > 9 ? '9+' : unreadCount}
@@ -291,8 +292,8 @@ export function AdminNotifications() {
         </div>
         <DropdownMenuSeparator />
         <div className="px-4 py-3">
-          <Link href="/admin/orders" className="text-xs font-medium text-brand-red hover:underline">
-            View all orders
+          <Link href="/admin/notifications" className="text-xs font-medium text-brand-red hover:underline">
+            View all notifications
           </Link>
         </div>
       </DropdownMenuContent>

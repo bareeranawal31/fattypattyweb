@@ -27,6 +27,24 @@ function formatCategoryName(categoryId: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
+const categoryOrder = new Map(defaultCategories.map((category, index) => [category.id, index]))
+
+function sortCategories<T extends { id: string; display_order?: number; sort_order?: number }>(items: T[]) {
+  return [...items].sort((a, b) => {
+    const aOrder = Number.isFinite(a.display_order as number)
+      ? Number(a.display_order)
+      : Number.isFinite(a.sort_order as number)
+        ? Number(a.sort_order)
+        : (categoryOrder.get(a.id) ?? 9999)
+    const bOrder = Number.isFinite(b.display_order as number)
+      ? Number(b.display_order)
+      : Number.isFinite(b.sort_order as number)
+        ? Number(b.sort_order)
+        : (categoryOrder.get(b.id) ?? 9999)
+    return aOrder - bOrder
+  })
+}
+
 function buildCategoriesFromMenuItems(items: StoredMenuItem[]): CategoryCard[] {
   const categoryMap = new Map<string, CategoryCard>()
 
@@ -80,7 +98,7 @@ export function Categories() {
         })
 
         if (data.data?.categories && data.data.categories.length > 0) {
-          const apiCategories: CategoryCard[] = data.data.categories.map((cat: Record<string, unknown>) => ({
+          const apiCategories: CategoryCard[] = sortCategories(data.data.categories as Array<Record<string, unknown>>).map((cat: Record<string, unknown>) => ({
             id: (cat.id as string) || 'other',
             name: (cat.name as string) || 'Other',
             image: (cat.image as string) || (cat.image_url as string) || '/images/placeholder.jpg',
@@ -102,7 +120,7 @@ export function Categories() {
         const parsed = JSON.parse(storedMenuItems) as StoredMenuItem[]
         const derived = buildCategoriesFromMenuItems(parsed)
         if (derived.length > 0) {
-          setCategories(derived)
+          setCategories(sortCategories(derived))
         }
       } catch {
         // Keep default categories if parsing fails
@@ -123,7 +141,7 @@ export function Categories() {
         const parsed = JSON.parse(storedMenuItems) as StoredMenuItem[]
         const derived = buildCategoriesFromMenuItems(parsed)
         if (derived.length > 0) {
-          setCategories(derived)
+          setCategories(sortCategories(derived))
         }
       } catch {
         // Keep previous category state if parsing fails
@@ -178,7 +196,7 @@ export function Categories() {
                 {category.name}
               </span>
               <span className="rounded-full bg-brand-red/10 px-2.5 py-1 text-xs font-semibold text-brand-red">
-                {category.count}
+                {i + 1}
               </span>
             </button>
           ))}

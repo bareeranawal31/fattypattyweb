@@ -72,6 +72,24 @@ function mapStoredProductToMenuItem(product: StoredMenuItem): MenuItem {
   }
 }
 
+const categoryOrder = new Map(defaultCategories.map((category, index) => [category.id, index]))
+
+function sortCategories<T extends { id: string; display_order?: number; sort_order?: number }>(items: T[]) {
+  return [...items].sort((a, b) => {
+    const aOrder = Number.isFinite(a.display_order as number)
+      ? Number(a.display_order)
+      : Number.isFinite(a.sort_order as number)
+        ? Number(a.sort_order)
+        : (categoryOrder.get(a.id) ?? 9999)
+    const bOrder = Number.isFinite(b.display_order as number)
+      ? Number(b.display_order)
+      : Number.isFinite(b.sort_order as number)
+        ? Number(b.sort_order)
+        : (categoryOrder.get(b.id) ?? 9999)
+    return aOrder - bOrder
+  })
+}
+
 export function MenuSection({ onItemClick }: MenuSectionProps) {
   const router = useRouter()
   const { user } = useCustomerAuth()
@@ -119,7 +137,7 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
           })
 
           if (data.data?.categories && data.data.categories.length > 0) {
-            const apiCategories: Category[] = data.data.categories.map((cat: Record<string, unknown>) => {
+            const apiCategories: Category[] = sortCategories(data.data.categories as Array<Record<string, unknown>>).map((cat: Record<string, unknown>) => {
               const categoryId = cat.id as string
               return {
                 id: categoryId,
@@ -160,7 +178,7 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
             .map((p: StoredMenuItem) => mapStoredProductToMenuItem(p))
           if (convertedProducts.length > 0) {
             setMenuItems(convertedProducts)
-            setCategories(buildCategoriesFromStoredProducts(products))
+            setCategories(sortCategories(buildCategoriesFromStoredProducts(products)))
           }
         } catch (error) {
           console.error('[v0] Error loading products from localStorage:', error)
@@ -186,7 +204,7 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
               .map((p: StoredMenuItem) => mapStoredProductToMenuItem(p))
             if (convertedProducts.length > 0) {
               setMenuItems(convertedProducts)
-              setCategories(buildCategoriesFromStoredProducts(products))
+              setCategories(sortCategories(buildCategoriesFromStoredProducts(products)))
             }
           } catch (error) {
             console.error('[v0] Error loading products from localStorage on change:', error)

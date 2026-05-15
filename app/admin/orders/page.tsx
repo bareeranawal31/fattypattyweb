@@ -354,17 +354,6 @@ function OrdersContent() {
               ))}
             </select>
           </div>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('cancelled')}
-            className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-              statusFilter === 'cancelled'
-                ? 'border-brand-red bg-brand-red text-white'
-                : 'border-border bg-background text-muted-foreground hover:bg-muted'
-            }`}
-          >
-            Cancelled
-          </button>
           <div className="relative">
             <input
               type="date"

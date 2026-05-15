@@ -88,8 +88,8 @@ export default function AdminLayout({
     }
   }, [isAdminAuthRoute, pathname, router, isStaffDashboard])
 
-  // Don't show sidebar on login page or staff dashboard
-  if (isAdminAuthRoute || isStaffDashboard) {
+  // Don't show sidebar on login page
+  if (isAdminAuthRoute) {
     return <>{children}</>
   }
 
@@ -109,6 +109,13 @@ export default function AdminLayout({
     router.push('/admin/login')
   }
 
+  const dashboardHref = user.role === 'staff' ? '/admin/staff-dashboard' : '/admin'
+  const visibleNavItems = navItems.map((item) =>
+    item.href === '/admin' && user.role === 'staff'
+      ? { ...item, href: dashboardHref }
+      : item,
+  )
+
   return (
     <div className="min-h-screen bg-background">
       {/* Mobile sidebar overlay */}
@@ -125,7 +132,7 @@ export default function AdminLayout({
         sidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="flex h-16 items-center justify-between border-b border-border px-4">
-          <Link href="/admin" className="flex items-center gap-2">
+          <Link href={dashboardHref} className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-red">
               <span className="text-sm font-bold text-primary-foreground">FP</span>
             </div>
@@ -143,7 +150,7 @@ export default function AdminLayout({
         </div>
 
         <nav className="p-4 space-y-1">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             // Hide admin-only items for staff
             if (item.adminOnly && user.role === 'staff') {
               return null
@@ -207,7 +214,7 @@ export default function AdminLayout({
           </div>
         </header>
 
-        <main className="p-4 lg:p-8">
+        <main className="p-4 lg:p-6">
           {children}
         </main>
       </div>

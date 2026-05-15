@@ -52,7 +52,7 @@ function getFallbackData() {
     id: cat.id,
     name: cat.name,
     image: cat.image,
-    sort_order: 0,
+    display_order: 0,
     is_active: true,
   }))
   const items = hardcodedMenuItems.map((item) => ({
@@ -114,7 +114,7 @@ export async function GET() {
           .from('categories')
           .select('*')
           .eq('is_active', true)
-          .order('sort_order'),
+          .order('display_order', { ascending: true }),
         supabase
           .from('menu_items')
           .select('*, category:categories(id, name)')
@@ -153,9 +153,15 @@ export async function GET() {
       image_url: deal.image || null,
     }))
 
+    const categories = [...(categoriesResult.data || [])].sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+      const aOrder = Number(a.display_order ?? a.sort_order ?? 0)
+      const bOrder = Number(b.display_order ?? b.sort_order ?? 0)
+      return aOrder - bOrder
+    })
+
     return NextResponse.json({
       data: {
-        categories: categoriesResult.data,
+        categories,
         items,
         deals,
         addOns,

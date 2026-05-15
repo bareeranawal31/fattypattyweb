@@ -24,6 +24,7 @@ interface Category {
 interface FormData {
   name: string
   description: string
+  image?: string
 }
 
 const initialFormData: FormData = {
@@ -41,6 +42,7 @@ export default function AdminCategoriesPage() {
   const [showModal, setShowModal] = useState(false)
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [formData, setFormData] = useState<FormData>(initialFormData)
+  const [isUploadingImage, setIsUploadingImage] = useState(false)
 
   const fetchCategories = useCallback(async () => {
     setIsLoading(true)
@@ -82,11 +84,51 @@ export default function AdminCategoriesPage() {
     setFormData(prev => ({ ...prev, [name]: value }))
   }
 
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image size must be less than 5MB')
+      return
+    }
+
+    setIsUploadingImage(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/admin/upload', { method: 'POST', body: fd })
+      const json = await res.json()
+      if (!res.ok || json.error) {
+        throw new Error(json.error || 'Failed to upload image')
+      }
+      const url = json.data?.url
+      if (!url) throw new Error('Upload did not return a URL')
+      setFormData(prev => ({ ...prev, image: url }))
+      toast.success('Image uploaded successfully')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to upload image'
+      console.error('[v0] Image upload error:', err)
+      toast.error(message)
+    } finally {
+      setIsUploadingImage(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
     if (!formData.name.trim()) {
       toast.error('Category name is required')
+      return
+    }
+
+    if (!editingCategory && !formData.image) {
+      toast.error('Please upload a category image before creating')
       return
     }
 
@@ -312,6 +354,23 @@ export default function AdminCategoriesPage() {
                   rows={3}
                   className="w-full px-3 py-2 rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-brand-red"
                 />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-foreground block mb-1">
+                  Category Image {editingCategory ? '(optional)' : '*'}
+                </label>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+                    <span className="inline-flex items-center rounded-lg border-2 border-dashed border-input bg-background px-3 py-2 text-sm text-muted-foreground hover:border-brand-red">
+                      {isUploadingImage ? 'Uploading...' : (formData.image ? 'Change Image' : 'Upload Image')}
+                    </span>
+                  </label>
+                  {formData.image && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={formData.image} alt="preview" className="h-12 w-12 rounded-md object-cover border" />
+                  )}
+                </div>
               </div>
               <div className="flex gap-2 justify-end">
                 <button

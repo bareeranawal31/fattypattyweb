@@ -11,10 +11,8 @@ import {
   ArrowRight,
   Loader2,
   RefreshCw,
-  Bell,
 } from 'lucide-react'
-
-const ALL_TICKETS_KEY = 'support-tickets:all'
+import { AdminNotifications } from '@/components/admin-notifications'
 
 interface Stats {
   todayRevenue: number
@@ -22,8 +20,6 @@ interface Stats {
   pendingOrders: number
   totalOrders: number
   completedToday: number
-  totalLoyaltyPoints?: number
-  redeemedLoyaltyPoints?: number
 }
 
 interface Order {
@@ -40,16 +36,6 @@ interface Order {
   createdAt?: string
 }
 
-interface NotificationItem {
-  id: string
-  type: 'order' | 'support'
-  title: string
-  message: string
-  status: string
-  created_at: string
-  href: string
-}
-
 interface User {
   role: 'admin' | 'staff'
   [key: string]: any
@@ -60,7 +46,6 @@ export default function AdminDashboard() {
   const [user, setUser] = useState<User | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
   const [recentOrders, setRecentOrders] = useState<Order[]>([])
-  const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   // Check if user is staff and redirect to staff dashboard
@@ -86,11 +71,9 @@ export default function AdminDashboard() {
       // Try fetching from API first
       let apiSuccess = false
       try {
-        const [statsResponse, ordersResponse, customersResponse, notificationsResponse] = await Promise.all([
+        const [statsResponse, ordersResponse] = await Promise.all([
           fetch('/api/admin/stats'),
           fetch('/api/admin/orders?limit=5'),
-          fetch('/api/admin/customers?status=all'),
-          fetch('/api/admin/notifications'),
         ])
 
         if (statsResponse.ok) {
@@ -117,31 +100,6 @@ export default function AdminDashboard() {
           }
         }
 
-        if (customersResponse.ok) {
-          const customersData = await customersResponse.json()
-          if (Array.isArray(customersData.data)) {
-            const loyaltyTotals = customersData.data.reduce((acc: { current: number; redeemed: number }, customer: { loyalty_points?: number; total_points_redeemed?: number }) => {
-              acc.current += Number(customer.loyalty_points || 0)
-              acc.redeemed += Number(customer.total_points_redeemed || 0)
-              return acc
-            }, { current: 0, redeemed: 0 })
-
-            if (statsData?.data) {
-              setStats({
-                ...statsData.data,
-                totalLoyaltyPoints: loyaltyTotals.current,
-                redeemedLoyaltyPoints: loyaltyTotals.redeemed,
-              })
-            }
-          }
-        }
-
-        if (notificationsResponse.ok) {
-          const notificationsData = await notificationsResponse.json()
-          if (Array.isArray(notificationsData.data)) {
-            setNotifications(notificationsData.data as NotificationItem[])
-          }
-        }
       } catch (apiError) {
         console.warn('API fetch failed, falling back to localStorage:', apiError)
       }
@@ -175,8 +133,6 @@ export default function AdminDashboard() {
           completedToday: todaysOrders.filter((o: Order) => 
             (o.status || '').toLowerCase() === 'delivered'
           ).length,
-          totalLoyaltyPoints: 0,
-          redeemedLoyaltyPoints: 0,
         })
         
         const sortedOrders = [...orders].sort((a: Order, b: Order) => {
@@ -196,41 +152,6 @@ export default function AdminDashboard() {
         }))
         
         setRecentOrders(normalizedOrders)
-
-        const supportTickets = JSON.parse(localStorage.getItem(ALL_TICKETS_KEY) || '[]') as Array<{
-          id: string
-          subject: string
-          message: string
-          ticket_type: string
-          status: string
-          created_at: string
-          customer_name?: string | null
-          customer_email?: string
-        }>
-
-        const notificationItems: NotificationItem[] = [
-          ...sortedOrders.map((order: Order) => ({
-            id: `order-${order.id}`,
-            type: 'order' as const,
-            title: `New order ${order.order_number}`,
-            message: `${order.customer_name || order.customerName || 'Customer'} placed a ${order.order_type || order.orderType || 'delivery'} order (${order.status || 'pending'}).`,
-            status: order.status || 'pending',
-            created_at: order.created_at || order.createdAt || new Date().toISOString(),
-            href: `/admin/orders?order=${order.id}`,
-          })),
-          ...supportTickets.map((ticket) => ({
-            id: `ticket-${ticket.id}`,
-            type: 'support' as const,
-            title: ticket.subject,
-            message: `${ticket.customer_name || ticket.customer_email || 'Customer'} sent a ${ticket.ticket_type} request (${ticket.status}).`,
-            status: ticket.status,
-            created_at: ticket.created_at,
-            href: '/admin/support',
-          })),
-        ]
-
-        notificationItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        setNotifications(notificationItems.slice(0, 10))
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error)
@@ -283,19 +204,22 @@ export default function AdminDashboard() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
           <p className="text-sm text-muted-foreground">Welcome back to Fatty Patty Admin</p>
         </div>
-        <button
-          onClick={fetchData}
-          disabled={isLoading}
-          className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <AdminNotifications />
+          <button
+            onClick={fetchData}
+            disabled={isLoading}
+            className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Stats Grid */}
@@ -356,56 +280,6 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Loyalty Points</p>
-              <p className="mt-1 text-2xl font-bold text-foreground">
-                {stats?.totalLoyaltyPoints || 0}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Redeemed: {stats?.redeemedLoyaltyPoints || 0}
-              </p>
-            </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100">
-              <RefreshCw className="h-6 w-6 text-amber-600" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card">
-        <div className="flex items-center justify-between border-b border-border p-6">
-          <h2 className="text-lg font-bold text-foreground">Notifications</h2>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Bell className="h-4 w-4" />
-            Latest orders and support requests
-          </div>
-        </div>
-        {notifications.length === 0 ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">No recent notifications</div>
-        ) : (
-          <div className="divide-y divide-border">
-            {notifications.map((notification) => (
-              <Link
-                key={notification.id}
-                href={notification.href}
-                className="block p-4 transition-colors hover:bg-muted/50"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-semibold text-foreground">{notification.title}</p>
-                    <p className="text-sm text-muted-foreground">{notification.message}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs uppercase text-muted-foreground">{notification.type}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(notification.created_at).toLocaleString()}</p>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Recent Orders */}

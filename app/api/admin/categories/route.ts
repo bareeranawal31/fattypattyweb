@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { randomUUID } from 'crypto'
 import { categories as hardcodedCategories } from '@/lib/menu-data'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -45,7 +46,7 @@ async function insertCategoryWithFallbacks(
   payload: Record<string, unknown>,
 ) {
   let nextPayload = { ...payload }
-  let lastError: { message?: string } | null = null
+  let lastError: { message?: string; code?: string } | null = null
 
   for (let attempt = 0; attempt < 6; attempt += 1) {
     const result = await supabase.from('categories').insert([nextPayload]).select().single()
@@ -57,14 +58,14 @@ async function insertCategoryWithFallbacks(
     lastError = result.error
     const missingColumn = getMissingColumnName(result.error.message)
     if (!missingColumn || !(missingColumn in nextPayload)) {
-      throw result.error
+      throw new Error(result.error.message || 'Failed to create category')
     }
 
     const { [missingColumn]: _removed, ...rest } = nextPayload
     nextPayload = rest
   }
 
-  throw lastError || new Error('Failed to create category')
+  throw new Error(lastError?.message || 'Failed to create category')
 }
 
 function getFallbackCategories() {
@@ -73,6 +74,7 @@ function getFallbackCategories() {
     name: cat.name,
     description: null,
     display_order: index,
+    image: '/images/placeholder.jpg',
     created_at: new Date().toISOString(),
   }))
 }
@@ -115,7 +117,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { name, description, display_order = 0 } = body
+    const { name, description, display_order = 0, image } = body
 
     console.log('[v0] Creating category with:', { name, description, display_order })
 
@@ -129,8 +131,10 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabase()
 
     const inserted = await insertCategoryWithFallbacks(supabase, {
+      id: randomUUID(),
       name: String(name).trim(),
       description: description ? String(description).trim() : null,
+      image: image ? String(image).trim() : '/images/placeholder.jpg',
       display_order: Number(display_order) || 0,
       sort_order: Number(display_order) || 0,
       is_active: true,
@@ -154,6 +158,13 @@ export async function POST(request: NextRequest) {
         : typeof error === 'string'
         ? error
         : 'Failed to create category'
+
+    if (/duplicate key|already exists|unique/i.test(message)) {
+      return NextResponse.json(
+        { error: 'Category already exists. Please choose a different name or edit the existing category.' },
+        { status: 409 }
+      )
+    }
 
     console.error('[v0] Final error message being sent:', message)
     return NextResponse.json(
