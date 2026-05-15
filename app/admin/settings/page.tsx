@@ -33,6 +33,7 @@ export default function AdminSettingsPage() {
   const [staffPasswordConfirm, setStaffPasswordConfirm] = useState('')
   const [staffIsActive, setStaffIsActive] = useState(true)
   const [staffLastUpdated, setStaffLastUpdated] = useState<string | null>(null)
+  const [staffOriginalEmail, setStaffOriginalEmail] = useState('')
   const [isStaffSaving, setIsStaffSaving] = useState(false)
   const [staffHasAccount, setStaffHasAccount] = useState(false)
 
@@ -65,6 +66,7 @@ export default function AdminSettingsPage() {
         const staff = result.data
         setStaffName(staff.name)
         setStaffEmail(staff.email)
+        setStaffOriginalEmail(staff.email)
         setStaffPassword('')
         setStaffPasswordConfirm('')
         setStaffIsActive(staff.isActive)
@@ -180,6 +182,7 @@ export default function AdminSettingsPage() {
         body: JSON.stringify({
         name: staffName.trim(),
         email: staffEmail.trim().toLowerCase(),
+        originalEmail: staffOriginalEmail || staffEmail.trim().toLowerCase(),
         isActive: staffIsActive,
         ...(hasNewPassword ? { password: staffPassword } : {}),
       }),
@@ -192,6 +195,7 @@ export default function AdminSettingsPage() {
 
       setStaffLastUpdated(result.data?.updatedAt || new Date().toISOString())
       setStaffHasAccount(true)
+      setStaffOriginalEmail(staffEmail.trim().toLowerCase())
       setStaffPassword('')
       setStaffPasswordConfirm('')
       toast.success('Staff account saved successfully')

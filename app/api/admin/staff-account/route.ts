@@ -33,13 +33,38 @@ function verifyPassword(password: string, storedHash: string) {
 
 function normalizeStaffAccount(row: Record<string, unknown>) {
   return {
-    id: row.id,
-    name: String(row.name || '').trim(),
+    id: String(row.id || ''),
+    name: String(row.name || row.user_metadata?.name || '').trim(),
     email: String(row.email || '').trim().toLowerCase(),
-    isActive: row.is_active ?? row.isActive ?? true,
-    updatedAt: row.updated_at ?? row.updatedAt ?? null,
+    isActive: row.is_active ?? row.isActive ?? row.user_metadata?.isActive ?? true,
+    updatedAt: row.updated_at ?? row.updatedAt ?? row.created_at ?? row.createdAt ?? null,
     createdAt: row.created_at ?? row.createdAt ?? null,
   }
+}
+
+function normalizeAuthUser(user: Record<string, unknown>) {
+  const metadata = (user.user_metadata || {}) as Record<string, unknown>
+
+  return {
+    id: String(user.id || ''),
+    name: String(metadata.name || user.email || '').trim(),
+    email: String(user.email || '').trim().toLowerCase(),
+    isActive: metadata.isActive ?? true,
+    updatedAt: String(user.updated_at || user.created_at || new Date().toISOString()),
+    createdAt: String(user.created_at || new Date().toISOString()),
+  }
+}
+
+async function findStaffAuthUserByEmail(supabase: ReturnType<typeof getSupabase>, email: string) {
+  const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
+  if (error) throw error
+
+  const matched = (data.users || []).find((user) => {
+    const metadata = (user.user_metadata || {}) as Record<string, unknown>
+    return user.email?.toLowerCase() === email.toLowerCase() && metadata.role === 'staff'
+  })
+
+  return matched || null
 }
 
 export async function GET() {
@@ -49,11 +74,16 @@ export async function GET() {
     }
 
     const supabase = getSupabase()
-    const { data, error } = await supabase.from('staff_accounts').select('*').order('updated_at', { ascending: false }).limit(1).maybeSingle()
 
+    const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
     if (error) throw error
 
-    return NextResponse.json({ data: data ? normalizeStaffAccount(data as Record<string, unknown>) : null }, { status: 200 })
+    const staffUser = (data.users || []).find((user) => {
+      const metadata = (user.user_metadata || {}) as Record<string, unknown>
+      return metadata.role === 'staff'
+    })
+
+    return NextResponse.json({ data: staffUser ? normalizeAuthUser(staffUser as Record<string, unknown>) : null }, { status: 200 })
   } catch (error) {
     console.error('[staff-account] Error loading staff account:', error)
     return NextResponse.json({ data: null, error: error instanceof Error ? error.message : 'Failed to load staff account' }, { status: 500 })
@@ -71,6 +101,7 @@ export async function PUT(request: NextRequest) {
     const email = String(body.email || '').trim().toLowerCase()
     const isActive = body.isActive !== false
     const password = String(body.password || '')
+    const originalEmail = String(body.originalEmail || email).trim().toLowerCase()
 
     if (!name) {
       return NextResponse.json({ error: 'Staff name is required' }, { status: 400 })
@@ -80,39 +111,48 @@ export async function PUT(request: NextRequest) {
     }
 
     const supabase = getSupabase()
-    const { data: existingRow, error: fetchError } = await supabase
-      .from('staff_accounts')
-      .select('*')
-      .eq('email', email)
-      .maybeSingle()
+    const existingUser = await findStaffAuthUserByEmail(supabase, originalEmail)
 
-    if (fetchError) throw fetchError
-
-    const payload: Record<string, unknown> = {
-      name,
-      email,
-      is_active: isActive,
-      updated_at: new Date().toISOString(),
+    if (password.trim() && password.trim().length < 8) {
+      return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
     }
 
-    if (password.trim()) {
-      if (password.trim().length < 8) {
-        return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
+    const metadata = {
+      role: 'staff',
+      name,
+      isActive,
+    }
+
+    if (existingUser) {
+      const updatePayload: Record<string, unknown> = {
+        email,
+        user_metadata: metadata,
       }
-      payload.password_hash = hashPassword(password.trim())
-    } else if (!existingRow) {
+
+      if (password.trim()) {
+        updatePayload.password = password.trim()
+      }
+
+      const { data, error } = await supabase.auth.admin.updateUserById(existingUser.id, updatePayload)
+      if (error) throw error
+
+      return NextResponse.json({ data: normalizeAuthUser(data as Record<string, unknown>) }, { status: 200 })
+    }
+
+    if (!password.trim()) {
       return NextResponse.json({ error: 'Password is required for a new staff account' }, { status: 400 })
     }
 
-    const { data, error } = await supabase
-      .from('staff_accounts')
-      .upsert(payload, { onConflict: 'email' })
-      .select()
-      .single()
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password: password.trim(),
+      email_confirm: true,
+      user_metadata: metadata,
+    })
 
     if (error) throw error
 
-    return NextResponse.json({ data: normalizeStaffAccount(data as Record<string, unknown>) }, { status: 200 })
+    return NextResponse.json({ data: normalizeAuthUser(data.user as Record<string, unknown>) }, { status: 200 })
   } catch (error) {
     console.error('[staff-account] Error saving staff account:', error)
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to save staff account' }, { status: 500 })
@@ -134,28 +174,24 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getSupabase()
-    const { data, error } = await supabase
-      .from('staff_accounts')
-      .select('*')
-      .eq('email', email)
-      .maybeSingle()
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
     if (error) throw error
 
-    if (!data || data.is_active === false) {
-      return NextResponse.json({ error: 'Staff account not configured or inactive' }, { status: 401 })
+    const metadata = (data.user?.user_metadata || {}) as Record<string, unknown>
+    if (metadata.role !== 'staff') {
+      return NextResponse.json({ error: 'Invalid staff credentials' }, { status: 401 })
     }
 
-    const passwordHash = String((data as Record<string, unknown>).password_hash || '')
-    if (!passwordHash || !verifyPassword(password, passwordHash)) {
-      return NextResponse.json({ error: 'Invalid staff credentials' }, { status: 401 })
+    if (metadata.isActive === false) {
+      return NextResponse.json({ error: 'Staff account not configured or inactive' }, { status: 401 })
     }
 
     return NextResponse.json({
       data: {
-        name: String((data as Record<string, unknown>).name || ''),
+        name: String(metadata.name || data.user?.email || ''),
         role: 'staff',
-        email,
+        email: String(data.user?.email || email),
         loginTime: new Date().toISOString(),
       },
     }, { status: 200 })
