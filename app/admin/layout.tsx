@@ -15,7 +15,6 @@ import {
   LogOut,
   MessageSquare,
   Users,
-  MapPin
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -27,7 +26,6 @@ const navItems = [
   { href: '/admin/deals', label: 'Deals', icon: Tag },
   { href: '/admin/reviews', label: 'Reviews', icon: MessageSquare },
   { href: '/admin/support', label: 'Support', icon: MessageSquare },
-  { href: '/admin/branches', label: 'Branches', icon: MapPin },
   { href: '/admin/customers', label: 'Customers', icon: Users },
   { href: '/admin/settings', label: 'Settings', icon: Settings },
 ]

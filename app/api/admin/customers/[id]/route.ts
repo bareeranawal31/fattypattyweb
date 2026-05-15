@@ -147,8 +147,17 @@ export async function GET(
     const totalOrders = matchedOrders.length
     const totalSpent = matchedOrders.reduce((sum, order) => sum + (Number(order.total) || 0), 0)
     const derivedLoyaltyPoints = matchedOrders.reduce((sum, order) => {
+      const explicitEarned = Number(order.loyalty_points_earned || order.loyaltyPointsEarned || 0)
+      if (Number.isFinite(explicitEarned) && explicitEarned > 0) {
+        return sum + explicitEarned
+      }
+
       const total = Number(order.total || 0)
       return sum + (total >= LOYALTY_MIN_ORDER_AMOUNT ? LOYALTY_FIXED_POINTS : 0)
+    }, 0)
+    const redeemedLoyaltyPoints = matchedOrders.reduce((sum, order) => {
+      const redeemed = Number(order.loyalty_points_redeemed || order.loyaltyPointsRedeemed || 0)
+      return sum + (Number.isFinite(redeemed) ? redeemed : 0)
     }, 0)
 
     return NextResponse.json({
@@ -165,7 +174,7 @@ export async function GET(
         loyalty_points: Math.max(
           Number(customer?.loyalty_points || 0),
           Number(profile?.current_points || 0),
-          Math.max(0, derivedLoyaltyPoints),
+          Math.max(0, derivedLoyaltyPoints - redeemedLoyaltyPoints),
         ),
         is_active: typeof customer?.is_active === 'boolean' ? customer.is_active : true,
         created_at:

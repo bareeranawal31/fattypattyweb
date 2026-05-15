@@ -7,6 +7,7 @@ import { Star, Zap } from 'lucide-react'
 import { popularItems } from '@/lib/menu-data'
 import type { MenuItem } from '@/lib/menu-data'
 import { SignInBenefitsPrompt } from '@/components/signin-benefits-prompt'
+import { useCustomerAuth } from '@/lib/customer-auth-context'
 
 interface PopularItemsProps {
   onItemClick: (item: MenuItem) => void
@@ -14,6 +15,7 @@ interface PopularItemsProps {
 
 export function PopularItems({ onItemClick }: PopularItemsProps) {
   const router = useRouter()
+  const { user } = useCustomerAuth()
   const [pendingQuickAddItem, setPendingQuickAddItem] = useState<MenuItem | null>(null)
   const [productRatings, setProductRatings] = useState<Record<string, number>>({})
 
@@ -39,11 +41,19 @@ export function PopularItems({ onItemClick }: PopularItemsProps) {
 
   const handleQuickAdd = (e: React.MouseEvent, item: MenuItem) => {
     e.stopPropagation()
-    setPendingQuickAddItem(item)
+    if (user) {
+      onItemClick(item)
+    } else {
+      setPendingQuickAddItem(item)
+    }
   }
 
   const handleCardClick = (item: MenuItem) => {
-    setPendingQuickAddItem(item)
+    if (user) {
+      onItemClick(item)
+    } else {
+      setPendingQuickAddItem(item)
+    }
   }
 
   return (

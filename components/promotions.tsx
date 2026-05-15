@@ -18,9 +18,18 @@ export function Promotions({ onDealClick }: PromotionsProps) {
     const loadDeals = async () => {
       try {
         // Try to fetch from API first
-        const response = await fetch('/api/menu')
-        const data = await response.json()
-        
+        const response = await fetch('/api/menu', { cache: 'no-store' })
+        const responseText = await response.text()
+        if (!response.ok) {
+          throw new Error(`Failed to fetch deals from API: ${response.status}`)
+        }
+        let data: any
+        try {
+          data = JSON.parse(responseText)
+        } catch (error) {
+          throw new Error('Invalid JSON response from /api/menu')
+        }
+
         if (data.data?.deals && data.data.deals.length > 0) {
           // Convert API deals to Deal format
           const convertedDeals: Deal[] = data.data.deals

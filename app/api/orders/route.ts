@@ -52,6 +52,7 @@ interface CreateOrderRequest {
   total: number
   loyaltyEligibleTotal?: number
   loyaltyPointsRedeemed?: number
+  loyaltyEnabled?: boolean
   specialInstructions?: string
   items: Array<CartItemForOrder | Record<string, unknown>>
 }
@@ -281,72 +282,12 @@ export async function POST(request: Request) {
       )
     }
 
+    // Delivery orders no longer require map coordinates. Use selectedBranchId if provided.
     if (body.orderType === 'delivery') {
-      if (!Number.isFinite(body.deliveryLatitude) || !Number.isFinite(body.deliveryLongitude)) {
-        return NextResponse.json(
-          { data: null, error: 'Delivery location coordinates are required for delivery orders' },
-          { status: 400 },
-        )
+      // If a branch was explicitly selected, prefer it; otherwise leave branch selection to server logic.
+      if (body.selectedBranchId) {
+        body.pickupBranch = body.pickupBranch || null
       }
-
-      const { data: branchRows, error: branchesError } = await dbClient
-        .from('branches')
-        .select('*,delivery_areas(*)')
-        .eq('is_active', true)
-
-      if (branchesError || !Array.isArray(branchRows) || branchRows.length === 0) {
-        return NextResponse.json(
-          { data: null, error: 'No active branches are available to validate delivery' },
-          { status: 400 },
-        )
-      }
-
-      const deliveryLocation = {
-        lat: Number(body.deliveryLatitude),
-        lng: Number(body.deliveryLongitude),
-      }
-
-      const normalizedBranches = (branchRows as BranchRowForValidation[]).map((branch) => ({
-        id: branch.id,
-        name: branch.name,
-        address: branch.address,
-        latitude: Number.isFinite(branch.latitude) ? Number(branch.latitude) : null,
-        longitude: Number.isFinite(branch.longitude) ? Number(branch.longitude) : null,
-        delivery_radius: Number.isFinite(branch.delivery_radius) ? Number(branch.delivery_radius) : null,
-        delivery_areas: Array.isArray(branch.delivery_areas)
-          ? branch.delivery_areas
-          : [],
-      }))
-
-      const requestedBranch = body.selectedBranchId
-        ? normalizedBranches.find((branch) => branch.id === body.selectedBranchId) || null
-        : null
-
-      const nearest = findNearestBranch(deliveryLocation, normalizedBranches)
-      const branchToValidate = requestedBranch || nearest?.branch || null
-
-      const coverage = checkDeliveryCoverage(
-        branchToValidate,
-        deliveryLocation,
-        body.deliveryArea,
-      )
-
-      if (!coverage.isAvailable) {
-        return NextResponse.json(
-          {
-            data: null,
-            error: 'Delivery is not available for the selected location',
-            meta: {
-              nearestBranch: nearest?.branch?.name || null,
-              distanceKm: coverage.distanceKm,
-            },
-          },
-          { status: 400 },
-        )
-      }
-
-      body.selectedBranchId = branchToValidate?.id
-      body.pickupBranch = branchToValidate?.name || body.pickupBranch
     }
 
     if (user) {
@@ -413,7 +354,7 @@ export async function POST(request: Request) {
     // Estimate time based on order type
     const estimatedTime = body.orderType === 'delivery' ? '35-45 minutes' : '15-20 minutes'
     const loyaltyEligibleTotal = body.loyaltyEligibleTotal ?? body.total
-    const loyaltyPointsRedeemed = Math.max(0, body.loyaltyPointsRedeemed || 0)
+    const loyaltyPointsRedeemed = body.loyaltyEnabled === false ? 0 : Math.max(0, body.loyaltyPointsRedeemed || 0)
 
     if (user && loyaltyPointsRedeemed > 0) {
       const [{ data: profileForValidation }, { data: userRowForValidation }] = await Promise.all([
@@ -442,7 +383,7 @@ export async function POST(request: Request) {
     }
 
     const loyaltyPointsEarned =
-      user && loyaltyEligibleTotal >= LOYALTY_MIN_ORDER_AMOUNT
+      user && body.loyaltyEnabled !== false && loyaltyEligibleTotal >= LOYALTY_MIN_ORDER_AMOUNT
         ? LOYALTY_FIXED_POINTS
         : 0
 
@@ -473,6 +414,8 @@ export async function POST(request: Request) {
         loyaltyPointsRedeemed > 0
           ? `Loyalty redeemed: ${loyaltyPointsRedeemed} points`
           : null,
+      loyalty_points_earned: loyaltyPointsEarned,
+      loyalty_points_redeemed: loyaltyPointsRedeemed,
       estimated_time: estimatedTime,
     }
 

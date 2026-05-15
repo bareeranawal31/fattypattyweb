@@ -1,17 +1,13 @@
 "use client"
 
 import { useState, useEffect } from 'react'
-import { X, CheckCircle2, Loader2, MapPin, Clock, Store, Navigation } from 'lucide-react'
+import { X, CheckCircle2, MapPin, Clock, Store, Loader2 } from 'lucide-react'
 import { useCart, type CartItem } from '@/lib/cart-context'
 import { useAdminSettings } from '@/lib/admin-settings'
 import { useOrder } from '@/lib/order-context'
 import { useCustomerAuth } from '@/lib/customer-auth-context'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 import { toast } from '@/lib/notify'
-import { LocationMap } from '@/components/location-map'
-import { useUserLocation } from '@/hooks/use-user-location'
-import { useGoogleMaps } from '@/hooks/use-google-maps'
-import { checkDeliveryCoverage, findNearestBranch, type LatLng } from '@/lib/location-utils'
 
 interface AdminCoupon {
   id: string
@@ -64,7 +60,7 @@ interface CheckoutModalProps {
 
 export function CheckoutModal({ onClose }: CheckoutModalProps) {
   const supabase = createSupabaseClient()
-  const { hasApiKey, loadError } = useGoogleMaps()
+  
   const { items, subtotal, clearCart } = useCart()
   const { orderType, selectedArea, selectedBranch, deliveryAreas, branches } = useOrder()
   const settings = useAdminSettings()
@@ -76,7 +72,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
   const [appliedCouponCode, setAppliedCouponCode] = useState('')
   const [discountAmount, setDiscountAmount] = useState(0)
   const [loyaltyPointsToRedeem, setLoyaltyPointsToRedeem] = useState(0)
-  const [loyaltyInput, setLoyaltyInput] = useState('')
+  const [redeemLoyalty, setRedeemLoyalty] = useState(false)
   const [couponRules, setCouponRules] = useState<Record<string, { type: 'percentage' | 'fixed'; value: number }>>({})
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([])
   const [selectedSavedAddressId, setSelectedSavedAddressId] = useState('')
@@ -90,37 +86,33 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
     branch: selectedBranch || '',
     notes: '',
   })
-  const {
-    location: detectedLocation,
-    setLocation: setDetectedLocation,
-    detectLocation,
-    isDetecting,
-    locationError,
-    clearLocationError,
-  } = useUserLocation()
-
-  const nearestBranchResult = detectedLocation
-    ? findNearestBranch(detectedLocation, branches)
-    : null
-  const nearestBranch = nearestBranchResult?.branch || null
-  const nearestDistanceKm = nearestBranchResult?.distanceKm || null
-
-  const deliveryCoverage = checkDeliveryCoverage(
-    nearestBranch,
-    detectedLocation,
-    formData.area || undefined,
-  )
-  const isDeliveryAvailable = formData.orderType === 'delivery' ? deliveryCoverage.isAvailable : true
+  
 
   const deliveryFee = formData.orderType === 'delivery' ? settings.deliveryFee : 0
   const taxRate = 0 // No tax for now
   const taxAmount = subtotal * taxRate
   const totalBeforeLoyalty = Math.max(0, subtotal + deliveryFee + taxAmount - discountAmount)
   const availableLoyaltyPoints = profile?.current_points || 0
+  const loyaltyProgramEnabled = !settings.isLoyaltyPaused
   const redeemValuePerPoint = LOYALTY_REDEEM_VALUE_PER_POINT
   const maxRedeemablePointsByAmount = Math.floor(totalBeforeLoyalty / redeemValuePerPoint)
-  const maxRedeemablePoints = Math.min(availableLoyaltyPoints, maxRedeemablePointsByAmount)
-  const loyaltyDiscount = Math.min(loyaltyPointsToRedeem * redeemValuePerPoint, totalBeforeLoyalty)
+  const maxRedeemablePoints = loyaltyProgramEnabled ? Math.min(availableLoyaltyPoints, maxRedeemablePointsByAmount) : 0
+  const redeemableHundreds = Math.floor(maxRedeemablePoints / 100)
+  const redeemableOptions = Array.from({ length: redeemableHundreds }, (_, index) => (index + 1) * 100)
+  // Compute loyalty discount: if redeeming >=100 points, treat each 100 points as 10% off
+  const loyaltyDiscount = (() => {
+    if (!loyaltyProgramEnabled) {
+      return 0
+    }
+
+    if (loyaltyPointsToRedeem >= 100) {
+      const hundreds = Math.floor(loyaltyPointsToRedeem / 100)
+      const percent = 10 * hundreds
+      return Math.min(Math.round((totalBeforeLoyalty * percent) / 100), totalBeforeLoyalty)
+    }
+    return Math.min(loyaltyPointsToRedeem * redeemValuePerPoint, totalBeforeLoyalty)
+  })()
+
   const total = Math.max(0, totalBeforeLoyalty - loyaltyDiscount)
   const earnedLoyaltyPoints =
     user && totalBeforeLoyalty >= LOYALTY_MIN_ORDER_AMOUNT
@@ -202,6 +194,17 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
   useEffect(() => {
     setLoyaltyPointsToRedeem((prev) => Math.min(prev, maxRedeemablePoints))
   }, [maxRedeemablePoints])
+
+  useEffect(() => {
+    if (!redeemLoyalty) {
+      setLoyaltyPointsToRedeem(0)
+      return
+    }
+
+    if (redeemableOptions.length > 0 && loyaltyPointsToRedeem < 100) {
+      setLoyaltyPointsToRedeem(redeemableOptions[0])
+    }
+  }, [redeemLoyalty, redeemableOptions, loyaltyPointsToRedeem])
 
   useEffect(() => {
     if (!user) {
@@ -317,16 +320,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
     }))
   }, [savedAddresses, selectedSavedAddressId])
 
-  useEffect(() => {
-    if (formData.orderType !== 'delivery') {
-      return
-    }
-
-    setFormData((prev) => ({
-      ...prev,
-      branch: nearestBranch?.id || prev.branch,
-    }))
-  }, [formData.orderType, nearestBranch?.id])
+  
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -344,24 +338,12 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
       toast.error('Please select a delivery area')
       return
     }
-    if (branches.length === 0) {
-      toast.error('No branches are configured for orders at the moment')
-      return
-    }
     if (formData.orderType === 'delivery' && !formData.address.trim()) {
       toast.error('Please enter your delivery address')
       return
     }
-    if (formData.orderType === 'delivery' && !detectedLocation) {
-      toast.error('Please select your delivery location on map or use Detect My Location')
-      return
-    }
-    if (formData.orderType === 'delivery' && !nearestBranch) {
-      toast.error('No branch with map coordinates is available for delivery')
-      return
-    }
-    if (formData.orderType === 'delivery' && !isDeliveryAvailable) {
-      toast.error('Selected location is outside our delivery zone')
+    if (branches.length === 0) {
+      toast.error('No branches are configured for orders at the moment')
       return
     }
     if (formData.orderType === 'pickup' && !formData.branch) {
@@ -420,16 +402,17 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
         pickupBranch: formData.orderType === 'pickup' ? (branches.find(b => b.id === formData.branch)?.name || formData.branch) : undefined,
         deliveryArea: formData.orderType === 'delivery' ? formData.area : undefined,
         deliveryAddress: formData.orderType === 'delivery' ? formData.address.trim() : undefined,
-        selectedBranchId: formData.orderType === 'delivery' ? nearestBranch?.id : formData.branch,
-        deliveryLatitude: formData.orderType === 'delivery' ? detectedLocation?.lat : undefined,
-        deliveryLongitude: formData.orderType === 'delivery' ? detectedLocation?.lng : undefined,
+        selectedBranchId: formData.branch,
+        deliveryLatitude: undefined,
+        deliveryLongitude: undefined,
         deliveryFee,
         couponCode: appliedCouponCode || undefined,
         discountAmount,
         subtotal,
         total,
         loyaltyEligibleTotal: totalBeforeLoyalty,
-        loyaltyPointsRedeemed: loyaltyPointsToRedeem,
+        loyaltyPointsRedeemed: loyaltyProgramEnabled ? loyaltyPointsToRedeem : 0,
+        loyaltyEnabled: loyaltyProgramEnabled,
         specialInstructions: formData.notes.trim() || undefined,
         items: orderItems,
         status: 'Pending',
@@ -524,7 +507,6 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
       setOrderPlaced(true)
       clearCart()
       setLoyaltyPointsToRedeem(0)
-      setLoyaltyInput('')
       if (user) {
         try {
           const existingRaw = localStorage.getItem(getFallbackProfileKey(user.id))
@@ -539,7 +521,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
             : {}
 
           const earned =
-            totalBeforeLoyalty >= LOYALTY_MIN_ORDER_AMOUNT
+            loyaltyProgramEnabled && totalBeforeLoyalty >= LOYALTY_MIN_ORDER_AMOUNT
               ? LOYALTY_FIXED_POINTS
               : 0
           const redeemed = loyaltyPointsToRedeem
@@ -578,21 +560,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
-  const handleDetectLocation = async () => {
-    clearLocationError()
-    const location = await detectLocation()
-    if (!location) {
-      toast.error('Unable to detect your location. Please select manually on the map.')
-      return
-    }
-    setDetectedLocation(location)
-    toast.success('Location detected. Nearest branch selected automatically.')
-  }
-
-  const handleMapLocationSelect = (location: LatLng) => {
-    clearLocationError()
-    setDetectedLocation(location)
-  }
+  // Delivery location selection removed from UI.
 
   const applyCoupon = () => {
     const normalizedCode = couponCode.trim().toUpperCase()
@@ -631,26 +599,32 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
       return
     }
 
-    const parsed = parseInt(loyaltyInput || '0', 10)
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      toast.error('Enter valid loyalty points to redeem')
+    if (!redeemLoyalty) {
+      toast.error('Enable loyalty redemption to use points')
       return
     }
 
-    const safePoints = Math.min(parsed, maxRedeemablePoints)
-    if (safePoints <= 0) {
+    const safePoints = Math.min(loyaltyPointsToRedeem, maxRedeemablePoints)
+    if (safePoints < 100) {
+      toast.error('Redeem points in steps of 100')
+      return
+    }
+
+    const normalizedPoints = Math.floor(safePoints / 100) * 100
+    if (normalizedPoints <= 0) {
       toast.error('No redeemable points available for this order')
       return
     }
 
-    setLoyaltyPointsToRedeem(safePoints)
-    const redeemAmount = safePoints * redeemValuePerPoint
-    toast.success(`${safePoints} points applied (Rs. ${redeemAmount.toLocaleString()})`) 
+    setLoyaltyPointsToRedeem(normalizedPoints)
+    const percent = 10 * (normalizedPoints / 100)
+    const redeemAmount = Math.round((subtotal * percent) / 100)
+    toast.success(`${normalizedPoints} points applied (${percent}% off, Rs. ${redeemAmount.toLocaleString()})`)
   }
 
   const clearLoyaltyPoints = () => {
     setLoyaltyPointsToRedeem(0)
-    setLoyaltyInput('')
+    setRedeemLoyalty(false)
   }
 
   if (orderPlaced) {
@@ -801,6 +775,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
                         )}
                       </div>
                     )}
+
                     <select
                       required
                       value={formData.area}
@@ -812,6 +787,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
                         <option key={area} value={area}>{area}</option>
                       ))}
                     </select>
+
                     <textarea
                       required
                       rows={2}
@@ -820,70 +796,6 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
                       onChange={(e) => updateField('address', e.target.value)}
                       className="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand-red focus:outline-none focus:ring-2 focus:ring-brand-red/20"
                     />
-
-                    <div className="rounded-xl border border-border bg-background p-3">
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Delivery Location
-                        </p>
-                        <button
-                          type="button"
-                          onClick={handleDetectLocation}
-                          disabled={isDetecting}
-                          className="inline-flex items-center gap-2 rounded-lg border border-brand-red px-3 py-1.5 text-xs font-semibold text-brand-red transition-all hover:bg-brand-red/5 disabled:opacity-50"
-                        >
-                          {isDetecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Navigation className="h-3.5 w-3.5" />}
-                          Detect My Location
-                        </button>
-                      </div>
-
-                      {(!hasApiKey || loadError) && (
-                        <p className="mb-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-700">
-                          Google Maps API unavailable. Fallback map preview is active.
-                        </p>
-                      )}
-
-                      {branches.length === 0 && (
-                        <p className="mb-2 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700">
-                          No branches are configured. Delivery cannot be processed.
-                        </p>
-                      )}
-
-                      <LocationMap
-                        branches={branches}
-                        selectedLocation={detectedLocation}
-                        center={detectedLocation}
-                        allowLocationPick
-                        onLocationSelect={handleMapLocationSelect}
-                        height={220}
-                        className="rounded-lg"
-                        fallbackQuery={nearestBranch ? `${nearestBranch.name}, ${nearestBranch.address}` : 'Fatty Patty Karachi'}
-                      />
-
-                      <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                        <p>
-                          Selected coordinates:{' '}
-                          {detectedLocation
-                            ? `${detectedLocation.lat.toFixed(6)}, ${detectedLocation.lng.toFixed(6)}`
-                            : 'Not selected'}
-                        </p>
-                        <p>
-                          Nearest branch:{' '}
-                          {nearestBranch
-                            ? `${nearestBranch.name}${nearestDistanceKm != null ? ` (${nearestDistanceKm.toFixed(2)} km)` : ''}`
-                            : 'Not available'}
-                        </p>
-                        <p className={isDeliveryAvailable ? 'text-green-600' : 'text-red-600'}>
-                          Delivery availability: {isDeliveryAvailable ? 'Available' : 'Not Available'}
-                        </p>
-                        {locationError && <p className="text-red-600">{locationError}</p>}
-                        {!isDeliveryAvailable && detectedLocation && (
-                          <p className="text-red-600">
-                            Your location is outside our service zone for the nearest branch.
-                          </p>
-                        )}
-                      </div>
-                    </div>
                   </div>
                 </div>
               )}
@@ -958,49 +870,75 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
                 )}
               </div>
 
-              {/* Loyalty Points */}
-              <div>
-                <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-foreground">Loyalty Points</h3>
-                {!user ? (
-                  <p className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                    Sign in to redeem points and earn points on qualifying orders.
-                  </p>
-                ) : (
-                  <>
-                    <p className="mb-2 text-xs text-muted-foreground">
-                      Available: <span className="font-semibold text-foreground">{availableLoyaltyPoints}</span> points
-                      {' '}({`Rs. ${(availableLoyaltyPoints * redeemValuePerPoint).toLocaleString()}`})
+              {!settings.isLoyaltyPaused && (
+                <div>
+                  <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-foreground">Loyalty Points</h3>
+                  {!user ? (
+                    <p className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                      Sign in to redeem points and earn points on qualifying orders.
                     </p>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        min={0}
-                        value={loyaltyInput}
-                        onChange={(e) => setLoyaltyInput(e.target.value)}
-                        placeholder="Points to redeem"
-                        className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-brand-red focus:outline-none focus:ring-2 focus:ring-brand-red/20"
-                      />
-                      <button
-                        type="button"
-                        onClick={applyLoyaltyPoints}
-                        className="rounded-xl border border-brand-red px-4 py-3 text-sm font-semibold text-brand-red transition-all hover:bg-brand-red/5"
-                      >
-                        Redeem
-                      </button>
-                    </div>
-                    {loyaltyDiscount > 0 && (
-                      <div className="mt-2 flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                        <span>
-                          Redeemed: <strong>{loyaltyPointsToRedeem} points (Rs. {loyaltyDiscount.toLocaleString()})</strong>
-                        </span>
-                        <button type="button" onClick={clearLoyaltyPoints} className="font-semibold hover:underline">
-                          Remove
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
+                  ) : (
+                    <>
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        Available: <span className="font-semibold text-foreground">{availableLoyaltyPoints}</span> points
+                      </p>
+                      {availableLoyaltyPoints >= 100 && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                          <label className="flex items-start gap-2 text-xs text-amber-900">
+                            <input
+                              type="checkbox"
+                              checked={redeemLoyalty}
+                              onChange={(e) => setRedeemLoyalty(e.target.checked)}
+                              className="mt-0.5 h-4 w-4 rounded border-amber-400 text-brand-red focus:ring-brand-red"
+                            />
+                            <span>
+                              Your points have reached 100. You are now able to get a 10% discount. If you have 200 points, you can get 20% off, 300 points gives 30% off, and so on. Redeem now.
+                            </span>
+                          </label>
+
+                          {redeemLoyalty && (
+                            <div className="mt-3 flex gap-2">
+                              <select
+                                value={loyaltyPointsToRedeem || 100}
+                                onChange={(e) => setLoyaltyPointsToRedeem(Number(e.target.value))}
+                                className="w-full rounded-xl border border-amber-300 bg-background px-4 py-3 text-sm text-foreground focus:border-brand-red focus:outline-none focus:ring-2 focus:ring-brand-red/20"
+                              >
+                                {redeemableOptions.map((points) => (
+                                  <option key={points} value={points}>
+                                    {points} points
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={applyLoyaltyPoints}
+                                className="rounded-xl border border-brand-red px-4 py-3 text-sm font-semibold text-brand-red transition-all hover:bg-brand-red/5"
+                              >
+                                Redeem
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {availableLoyaltyPoints > 0 && availableLoyaltyPoints < 100 && (
+                        <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-3 text-xs text-amber-900">
+                          When your points reach 100, you will be able to get a 10% discount. Keep collecting points to unlock 20% at 200, 30% at 300, and so on.
+                        </div>
+                      )}
+                      {loyaltyDiscount > 0 && (
+                        <div className="mt-2 flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                          <span>
+                            Redeemed: <strong>{loyaltyPointsToRedeem} points (Rs. {loyaltyDiscount.toLocaleString()})</strong>
+                          </span>
+                          <button type="button" onClick={clearLoyaltyPoints} className="font-semibold hover:underline">
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Order Summary */}
@@ -1087,11 +1025,7 @@ export function CheckoutModal({ onClose }: CheckoutModalProps) {
 
           <button
             type="submit"
-            disabled={
-              isSubmitting ||
-              branches.length === 0 ||
-              (formData.orderType === 'delivery' && !isDeliveryAvailable)
-            }
+            disabled={isSubmitting || branches.length === 0}
             className="mt-6 w-full flex items-center justify-center gap-2 rounded-xl bg-brand-red py-3.5 text-sm font-semibold text-primary-foreground transition-all hover:bg-brand-red/90 disabled:opacity-50 active:scale-[0.98]"
           >
             {isSubmitting ? (

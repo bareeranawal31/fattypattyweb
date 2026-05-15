@@ -8,6 +8,7 @@ import { Star } from 'lucide-react'
 import { menuItems as defaultMenuItems, categories as defaultCategories } from '@/lib/menu-data'
 import type { MenuItem, Category } from '@/lib/menu-data'
 import { SignInBenefitsPrompt } from '@/components/signin-benefits-prompt'
+import { useCustomerAuth } from '@/lib/customer-auth-context'
 import { cn } from '@/lib/utils'
 
 interface MenuSectionProps {
@@ -73,6 +74,7 @@ function mapStoredProductToMenuItem(product: StoredMenuItem): MenuItem {
 
 export function MenuSection({ onItemClick }: MenuSectionProps) {
   const router = useRouter()
+  const { user } = useCustomerAuth()
   const searchParams = useSearchParams()
   const initialCategory = searchParams.get('category') || 'all'
   const [activeCategory, setActiveCategory] = useState<string>(initialCategory)
@@ -87,10 +89,16 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
       try {
         // Try to fetch from API first
         const response = await fetch('/api/menu', { cache: 'no-store' })
+        const responseText = await response.text()
         if (!response.ok) {
-          throw new Error('Failed to fetch menu data')
+          throw new Error(`Failed to fetch menu data: ${response.status}`)
         }
-        const data = await response.json()
+        let data: any
+        try {
+          data = JSON.parse(responseText)
+        } catch (error) {
+          throw new Error('Invalid JSON response from /api/menu')
+        }
 
         if (data.data?.items && data.data.items.length > 0) {
           // Convert API items to MenuItem format
@@ -230,11 +238,19 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
 
   const handleQuickAdd = (e: React.MouseEvent, item: MenuItem) => {
     e.stopPropagation()
-    setPendingQuickAddItem(item)
+    if (user) {
+      onItemClick(item)
+    } else {
+      setPendingQuickAddItem(item)
+    }
   }
 
   const handleCardClick = (item: MenuItem) => {
-    setPendingQuickAddItem(item)
+    if (user) {
+      onItemClick(item)
+    } else {
+      setPendingQuickAddItem(item)
+    }
   }
 
   const filteredItems = useMemo(() => {
@@ -310,8 +326,9 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
                 {group.items.map((item) => (
                   <div
                     key={item.id}
+                    id={`menu-item-${item.id}`}
                     onClick={() => handleCardClick(item)}
-                    className="ui-card group cursor-pointer overflow-hidden rounded-2xl border-border/80"
+                    className="ui-card group cursor-pointer overflow-hidden rounded-2xl border-border/80 scroll-mt-32"
                   >
                     <div className="relative h-44 w-full overflow-hidden">
                       <Image
@@ -319,6 +336,10 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
                         alt={item.name}
                         fill
                         className="object-cover transition-transform duration-500 group-hover:scale-110"
+                        onError={(event) => {
+                          const target = event.currentTarget as HTMLImageElement
+                          target.src = '/images/placeholder.jpg'
+                        }}
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-[#1a1a1a]/40 via-transparent to-transparent" />
                       <div className="absolute right-3 top-3 flex items-center gap-1 rounded-full bg-[#1a1a1a]/70 px-2 py-0.5 backdrop-blur-sm">

@@ -60,11 +60,17 @@ export function Categories() {
     const loadCategories = async () => {
       try {
         const response = await fetch('/api/menu', { cache: 'no-store' })
+        const responseText = await response.text()
         if (!response.ok) {
-          throw new Error('Failed to fetch menu categories')
+          throw new Error(`Failed to fetch menu categories: ${response.status}`)
+        }
+        let data: any
+        try {
+          data = JSON.parse(responseText)
+        } catch (error) {
+          throw new Error('Invalid JSON response from /api/menu')
         }
 
-        const data = await response.json()
         const apiItems = (data.data?.items || []) as Array<Record<string, unknown>>
         const itemCounts = new Map<string, number>()
 

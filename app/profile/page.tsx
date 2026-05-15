@@ -13,9 +13,11 @@ import {
   MessageCircleQuestion,
   ShoppingBag,
   TicketPercent,
+  XCircle,
   UserRound,
 } from 'lucide-react'
 import { toast } from '@/lib/notify'
+import { useAdminSettings } from '@/lib/admin-settings'
 import { useCustomerAuth } from '@/lib/customer-auth-context'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 import { deliveryAreas as fallbackDeliveryAreas } from '@/lib/service-areas'
@@ -131,6 +133,7 @@ export default function ProfilePage() {
   const supabase = createSupabaseClient()
   const { user, profile: authProfile, loading, signOut } = useCustomerAuth()
   const { addMenuItem } = useCart()
+  const settings = useAdminSettings()
 
   const [activeTab, setActiveTab] = useState<StatusTab>('overview')
   const [isLoading, setIsLoading] = useState(false)
@@ -164,8 +167,10 @@ export default function ProfilePage() {
   const [showSignOutChoice, setShowSignOutChoice] = useState(false)
   const [isSigningOut, setIsSigningOut] = useState(false)
 
-  const points = Math.max(Number(account?.loyalty_points || 0), Number(authProfile?.current_points || 0))
+  const points = Number(authProfile?.current_points ?? account?.loyalty_points ?? 0)
   const pointValue = points * LOYALTY_REDEEM_VALUE_PER_POINT
+  const lifetimePoints = Number(authProfile?.lifetime_points_earned || 0)
+  const redeemedPoints = Number(authProfile?.total_points_redeemed || 0)
 
   const favoriteIds = useMemo(() => new Set(favorites.map((fav) => fav.menu_item_id)), [favorites])
   const favoriteItems = useMemo(
@@ -679,6 +684,36 @@ export default function ProfilePage() {
     toast.success('Items added to cart for reorder')
   }
 
+  const cancelOrder = async (order: OrderRow) => {
+    const status = order.status.toLowerCase()
+    if (!['pending', 'confirmed'].includes(status)) {
+      toast.error('Only pending or confirmed orders can be cancelled')
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/customer/orders/${order.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Cancelled from customer account' }),
+      })
+
+      const result = await response.json()
+      if (!response.ok || result.error) {
+        throw new Error(result.error || 'Failed to cancel order')
+      }
+
+      setOrders((prev) =>
+        prev.map((item) => (item.id === order.id ? { ...item, status: 'cancelled' } : item)),
+      )
+      toast.success('Order cancelled successfully')
+      await loadDashboardData()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to cancel order'
+      toast.error(message)
+    }
+  }
+
   const handleSignOutChoice = async (nextAction: 'signin' | 'guest') => {
     setIsSigningOut(true)
     try {
@@ -760,15 +795,18 @@ export default function ProfilePage() {
           </div>
 
           <div className="mt-5 grid gap-4 sm:grid-cols-3">
-            <div className="rounded-xl border border-border bg-background p-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <TicketPercent className="h-4 w-4 text-brand-red" />
-                Loyalty Points
+            {!settings.isLoyaltyPaused && (
+              <div className="rounded-xl border border-border bg-background p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <TicketPercent className="h-4 w-4 text-brand-red" />
+                  Loyalty Points
+                </div>
+                <p className="mt-2 text-3xl font-bold text-brand-red">{points}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Redeemable value: Rs. {pointValue.toLocaleString()}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Lifetime earned: {lifetimePoints} | Redeemed: {redeemedPoints}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Earn {LOYALTY_FIXED_POINTS} points on orders Rs. {LOYALTY_MIN_ORDER_AMOUNT.toLocaleString()}+.</p>
               </div>
-              <p className="mt-2 text-3xl font-bold text-brand-red">{points}</p>
-              <p className="mt-1 text-xs text-muted-foreground">Redeemable value: Rs. {pointValue.toLocaleString()}</p>
-              <p className="mt-1 text-xs text-muted-foreground">Earn {LOYALTY_FIXED_POINTS} points on orders Rs. {LOYALTY_MIN_ORDER_AMOUNT.toLocaleString()}+.</p>
-            </div>
+            )}
 
             <div className="rounded-xl border border-border bg-background p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -1059,6 +1097,15 @@ export default function ProfilePage() {
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
+                    {['pending', 'confirmed'].includes(order.status.toLowerCase()) && (
+                      <button
+                        onClick={() => cancelOrder(order)}
+                        className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
+                      >
+                        <XCircle className="mr-1 inline h-3.5 w-3.5" />
+                        Cancel Order
+                      </button>
+                    )}
                     <button
                       onClick={() => reorder(order)}
                       className="rounded-lg border border-brand-red px-3 py-1.5 text-xs font-semibold text-brand-red"

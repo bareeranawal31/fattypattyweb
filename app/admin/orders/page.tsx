@@ -70,6 +70,7 @@ const statusOptions = [
   { value: 'all', label: 'All Orders' },
   { value: 'pending', label: 'Pending' },
   { value: 'confirmed', label: 'Confirmed' },
+  { value: 'cancelled', label: 'Cancelled' },
   { value: 'out_for_delivery', label: 'Out for Delivery' },
   { value: 'delivered', label: 'Delivered' },
 ]
@@ -170,8 +171,8 @@ function OrdersContent() {
         }
       })
 
-      // Filter by status if needed
-      let filteredOrders = allOrders
+      // Hide cancelled orders from the default admin list
+      let filteredOrders = allOrders.filter(o => (o.status || '').toLowerCase() !== 'cancelled')
       if (statusFilter !== 'all') {
         filteredOrders = allOrders.filter(o => 
           o.status.toLowerCase() === statusFilter.toLowerCase()
@@ -353,6 +354,17 @@ function OrdersContent() {
               ))}
             </select>
           </div>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('cancelled')}
+            className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+              statusFilter === 'cancelled'
+                ? 'border-brand-red bg-brand-red text-white'
+                : 'border-border bg-background text-muted-foreground hover:bg-muted'
+            }`}
+          >
+            Cancelled
+          </button>
           <div className="relative">
             <input
               type="date"

@@ -393,8 +393,25 @@ export default function AdminSettingsPage() {
           </div>
           <div>
             <h2 className="font-semibold text-foreground">Loyalty Points</h2>
-            <p className="text-sm text-muted-foreground">Fixed program rules currently active for all customers</p>
+            <p className="text-sm text-muted-foreground">Control earning and redemption across the website</p>
           </div>
+        </div>
+
+        <div className="mb-5 rounded-xl border border-border bg-background p-4">
+          <label className="flex items-start gap-3 text-sm text-foreground">
+            <input
+              type="checkbox"
+              checked={settings.isLoyaltyPaused}
+              onChange={(event) => setSettings((prev) => ({ ...prev, isLoyaltyPaused: event.target.checked }))}
+              className="mt-0.5 h-4 w-4 rounded border-border text-brand-red focus:ring-brand-red"
+            />
+            <span>
+              <span className="font-semibold">Pause loyalty points</span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                When enabled, customers will not see loyalty options on the website and new orders will not earn or redeem points.
+              </span>
+            </span>
+          </label>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-3">
