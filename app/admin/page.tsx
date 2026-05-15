@@ -13,6 +13,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { AdminNotifications } from '@/components/admin-notifications'
+import { getStoredAdminUser } from '@/lib/admin-auth'
 
 interface Stats {
   todayRevenue: number
@@ -51,9 +52,8 @@ export default function AdminDashboard() {
   // Check if user is staff and redirect to staff dashboard
   useEffect(() => {
     try {
-      const userJson = sessionStorage.getItem('fpUser')
-      if (userJson) {
-        const userData = JSON.parse(userJson)
+      const userData = getStoredAdminUser()
+      if (userData) {
         setUser(userData)
         if (userData.role === 'staff') {
           router.push('/admin/staff-dashboard')

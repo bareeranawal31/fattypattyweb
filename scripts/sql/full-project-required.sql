@@ -257,6 +257,17 @@ CREATE TABLE IF NOT EXISTS public.loyalty_settings (
   updated_at timestamptz DEFAULT NOW()
 );
 
+-- Staff accounts
+CREATE TABLE IF NOT EXISTS public.staff_accounts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  email text NOT NULL UNIQUE,
+  password_hash text NOT NULL,
+  is_active boolean DEFAULT true,
+  created_at timestamptz DEFAULT NOW(),
+  updated_at timestamptz DEFAULT NOW()
+);
+
 -- Loyalty transactions
 CREATE TABLE IF NOT EXISTS public.loyalty_transactions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

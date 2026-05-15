@@ -34,6 +34,7 @@ export default function AdminSettingsPage() {
   const [staffIsActive, setStaffIsActive] = useState(true)
   const [staffLastUpdated, setStaffLastUpdated] = useState<string | null>(null)
   const [isStaffSaving, setIsStaffSaving] = useState(false)
+  const [staffHasAccount, setStaffHasAccount] = useState(false)
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -56,20 +57,25 @@ export default function AdminSettingsPage() {
     loadStaffAccount()
   }, [])
 
-  const loadStaffAccount = () => {
+  const loadStaffAccount = async () => {
     try {
-      const staffData = localStorage.getItem('fp_staff_account')
-      if (staffData) {
-        const staff = JSON.parse(staffData)
+      const response = await fetch('/api/admin/staff-account', { cache: 'no-store' })
+      const result = await response.json()
+      if (response.ok && result.data) {
+        const staff = result.data
         setStaffName(staff.name)
         setStaffEmail(staff.email)
-        setStaffPassword(staff.password)
-        setStaffPasswordConfirm(staff.password)
+        setStaffPassword('')
+        setStaffPasswordConfirm('')
         setStaffIsActive(staff.isActive)
         setStaffLastUpdated(staff.updatedAt)
+        setStaffHasAccount(true)
+        return
       }
+      setStaffHasAccount(false)
     } catch (error) {
       // Staff account not yet configured
+      setStaffHasAccount(false)
     }
   }
 
@@ -151,33 +157,46 @@ export default function AdminSettingsPage() {
       toast.error('Enter a valid email address')
       return
     }
-    if (!staffPassword.trim()) {
+    const hasNewPassword = staffPassword.trim().length > 0
+
+    if (!staffHasAccount && !hasNewPassword) {
       toast.error('Password is required')
       return
     }
-    if (staffPassword.length < 8) {
+    if (hasNewPassword && staffPassword.length < 8) {
       toast.error('Password must be at least 8 characters')
       return
     }
-    if (staffPassword !== staffPasswordConfirm) {
+    if (hasNewPassword && staffPassword !== staffPasswordConfirm) {
       toast.error('Passwords do not match')
       return
     }
 
     setIsStaffSaving(true)
     try {
-      const staffAccount = {
+      const response = await fetch('/api/admin/staff-account', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
         name: staffName.trim(),
         email: staffEmail.trim().toLowerCase(),
-        password: staffPassword,
         isActive: staffIsActive,
-        updatedAt: new Date().toISOString(),
+        ...(hasNewPassword ? { password: staffPassword } : {}),
+      }),
+      })
+
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to save staff account')
       }
-      localStorage.setItem('fp_staff_account', JSON.stringify(staffAccount))
-      setStaffLastUpdated(staffAccount.updatedAt)
+
+      setStaffLastUpdated(result.data?.updatedAt || new Date().toISOString())
+      setStaffHasAccount(true)
+      setStaffPassword('')
+      setStaffPasswordConfirm('')
       toast.success('Staff account saved successfully')
     } catch (error) {
-      toast.error('Failed to save staff account')
+      toast.error(error instanceof Error ? error.message : 'Failed to save staff account')
     } finally {
       setIsStaffSaving(false)
     }
@@ -566,7 +585,9 @@ export default function AdminSettingsPage() {
 
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">Password</label>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">
+                Password {staffHasAccount ? '(leave blank to keep current)' : '*'}
+              </label>
               <input
                 type="password"
                 value={staffPassword}
@@ -576,7 +597,9 @@ export default function AdminSettingsPage() {
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-foreground">Confirm Password</label>
+              <label className="mb-1.5 block text-sm font-medium text-foreground">
+                Confirm Password {staffHasAccount ? '(leave blank to keep current)' : '*'}
+              </label>
               <input
                 type="password"
                 value={staffPasswordConfirm}

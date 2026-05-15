@@ -17,6 +17,7 @@ import {
   Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { clearStoredAdminUser, getStoredAdminUser } from '@/lib/admin-auth'
 
 const navItems = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, adminOnly: false },
@@ -59,13 +60,11 @@ export default function AdminLayout({
     }
     
     try {
-      const userJson = sessionStorage.getItem('fpUser')
-      if (!userJson) {
+      const userData = getStoredAdminUser()
+      if (!userData) {
         router.push('/admin/login')
         return
       }
-      
-      const userData = JSON.parse(userJson)
       setUser(userData)
       setIsAuthenticated(true)
 
@@ -104,7 +103,7 @@ export default function AdminLayout({
 
   const handleLogout = () => {
     setIsLoggingOut(true)
-    sessionStorage.removeItem('fpUser')
+    clearStoredAdminUser()
     sessionStorage.removeItem('adminAuth') // Legacy cleanup
     router.push('/admin/login')
   }

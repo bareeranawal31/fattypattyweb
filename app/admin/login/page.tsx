@@ -4,17 +4,10 @@ import { useState, useEffect } from 'react'
 import { Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react'
 import { toast } from '@/lib/notify'
 import { createClient } from '@/lib/supabase/client'
+import { getStoredAdminUser, setStoredAdminUser } from '@/lib/admin-auth'
 
 const ADMIN_EMAIL = "fattypattyadmin@gmail.com"
 const ADMIN_PASSWORD = "fatty@14"
-
-interface StaffAccount {
-  name: string
-  email: string
-  password: string
-  isActive: boolean
-  updatedAt: string
-}
 
 export default function AdminLoginPage() {
   const [email, setEmail] = useState('')
@@ -25,23 +18,11 @@ export default function AdminLoginPage() {
 
   // Check if already logged in
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const userAuth = sessionStorage.getItem('fpUser')
-      if (userAuth) {
-        const user = JSON.parse(userAuth)
-        window.location.href = user.role === 'staff' ? '/admin/staff-dashboard' : '/admin'
-      }
+    const user = getStoredAdminUser()
+    if (user) {
+      window.location.href = user.role === 'staff' ? '/admin/staff-dashboard' : '/admin'
     }
   }, [])
-
-  const getStaffAccount = (): StaffAccount | null => {
-    try {
-      const data = localStorage.getItem('fp_staff_account')
-      return data ? JSON.parse(data) : null
-    } catch (e) {
-      return null
-    }
-  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -67,6 +48,12 @@ export default function AdminLoginPage() {
             email: emailInput,
             loginTime: new Date().toISOString()
           }))
+          setStoredAdminUser({
+            name: 'Admin',
+            role: 'admin',
+            email: emailInput,
+            loginTime: new Date().toISOString(),
+          })
           toast.success('Signed in successfully')
           window.location.href = '/admin'
           return
@@ -93,6 +80,12 @@ export default function AdminLoginPage() {
             email: emailInput,
             loginTime: new Date().toISOString()
           }))
+          setStoredAdminUser({
+            name: 'Admin',
+            role: 'admin',
+            email: emailInput,
+            loginTime: new Date().toISOString(),
+          })
           toast.success('Signed in successfully')
           window.location.href = '/admin'
           return
@@ -100,34 +93,32 @@ export default function AdminLoginPage() {
 
         toast.error('Invalid admin credentials')
       } else {
-        // Staff Login
-        const staffAccount = getStaffAccount()
+        try {
+          const response = await fetch('/api/admin/staff-account', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: emailInput, password: passwordInput }),
+          })
 
-        if (!staffAccount) {
-          toast.error('Staff account not configured yet. Please contact your Admin.')
-          setIsLoading(false)
-          return
-        }
+          const result = await response.json()
+          if (!response.ok || result.error) {
+            throw new Error(result.error || 'Invalid staff credentials')
+          }
 
-        if (staffAccount.isActive === false) {
-          toast.error('Your account has been deactivated. Please contact Admin.')
-          setIsLoading(false)
-          return
-        }
+          const staffUser = {
+            name: result.data.name,
+            role: 'staff' as const,
+            email: result.data.email,
+            loginTime: result.data.loginTime || new Date().toISOString(),
+          }
 
-        if (emailInput === staffAccount.email.toLowerCase() && passwordInput === staffAccount.password) {
-          sessionStorage.setItem('fpUser', JSON.stringify({
-            name: staffAccount.name,
-            role: 'staff',
-            email: emailInput,
-            loginTime: new Date().toISOString()
-          }))
+          setStoredAdminUser(staffUser)
           toast.success('Signed in successfully')
           window.location.href = '/admin/staff-dashboard'
           return
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : 'Invalid staff credentials')
         }
-
-        toast.error('Invalid staff credentials')
       }
     } finally {
       setIsLoading(false)

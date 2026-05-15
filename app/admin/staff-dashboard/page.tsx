@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { CheckCircle, Clock, LogOut, MessageSquare, ShoppingBag } from 'lucide-react'
 import { toast } from '@/lib/notify'
+import { clearStoredAdminUser, getStoredAdminUser } from '@/lib/admin-auth'
 
 interface DashboardStats {
   totalOrders: number
@@ -42,13 +43,12 @@ export default function StaffDashboardPage() {
 
   useEffect(() => {
     try {
-      const userJson = sessionStorage.getItem('fpUser')
-      if (!userJson) {
+      const userData = getStoredAdminUser()
+      if (!userData) {
         router.push('/admin/login')
         return
       }
 
-      const userData = JSON.parse(userJson)
       if (userData.role !== 'staff') {
         router.push('/admin')
         return
@@ -108,7 +108,7 @@ export default function StaffDashboardPage() {
 
   const handleLogout = () => {
     setIsLoggingOut(true)
-    sessionStorage.removeItem('fpUser')
+    clearStoredAdminUser()
     sessionStorage.removeItem('adminAuth')
     router.push('/admin/login')
   }
