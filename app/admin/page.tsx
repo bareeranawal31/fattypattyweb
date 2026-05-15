@@ -79,7 +79,6 @@ export default function AdminDashboard() {
       // Continue normally
     }
   }, [router])
-  const [isLoading, setIsLoading] = useState(true)
 
   const fetchData = async () => {
     setIsLoading(true)
