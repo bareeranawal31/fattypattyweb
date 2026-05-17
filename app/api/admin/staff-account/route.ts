@@ -113,6 +113,34 @@ async function upsertStaffAccount(
   const normalizedEmail = payload.email.toLowerCase()
   const normalizedOriginalEmail = payload.originalEmail.toLowerCase()
 
+  // Verify staff_accounts table exists
+  try {
+    const { error: tableCheckError } = await supabase
+      .from('staff_accounts')
+      .select('id')
+      .limit(1)
+    
+    if (tableCheckError?.code === 'PGRST116' || tableCheckError?.message?.includes('does not exist') || tableCheckError?.message?.includes('relation')) {
+      console.error('[staff-account] staff_accounts table missing', tableCheckError)
+      throw new Error(
+        'Staff accounts table not found in database. Please run: ' +
+        'CREATE TABLE IF NOT EXISTS public.staff_accounts (' +
+        'id uuid PRIMARY KEY DEFAULT gen_random_uuid(), ' +
+        'name text NOT NULL, ' +
+        'email text NOT NULL UNIQUE, ' +
+        'password_hash text NOT NULL, ' +
+        'is_active boolean DEFAULT true, ' +
+        'created_at timestamptz DEFAULT NOW(), ' +
+        'updated_at timestamptz DEFAULT NOW()' +
+        ')'
+      )
+    }
+  } catch (e) {
+    if (e instanceof Error && !e.message.includes('table not found')) {
+      throw e
+    }
+  }
+
   if (normalizedOriginalEmail !== normalizedEmail) {
     const existingWithTargetEmail = await findStaffAccountByEmail(supabase, normalizedEmail)
     if (existingWithTargetEmail) {
@@ -285,6 +313,26 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabase()
 
+    // Verify table exists before attempting lookup
+    try {
+      const { error: tableCheckError } = await supabase
+        .from('staff_accounts')
+        .select('id')
+        .limit(1)
+      
+      if (tableCheckError?.code === 'PGRST116' || tableCheckError?.message?.includes('does not exist')) {
+        console.error('[staff-account] staff_accounts table missing during login', tableCheckError)
+        return NextResponse.json(
+          { 
+            error: 'Staff account system not set up. Admin must create staff credentials first. Contact your administrator.' 
+          }, 
+          { status: 503 }
+        )
+      }
+    } catch (e) {
+      console.error('[staff-account] Error checking staff_accounts table', e)
+    }
+
     let account = await findStaffAccountByEmail(supabase, email)
 
     if (!account) {
@@ -293,18 +341,22 @@ export async function POST(request: NextRequest) {
     }
 
     if (!account) {
-      return NextResponse.json({ error: 'Invalid staff credentials' }, { status: 401 })
+      console.warn(`[staff-account] Login attempt with non-existent email: ${email}`)
+      return NextResponse.json({ error: 'Invalid staff credentials - account not found' }, { status: 401 })
     }
 
     if (!account.is_active) {
-      return NextResponse.json({ error: 'Staff account not configured or inactive' }, { status: 401 })
+      console.warn(`[staff-account] Login attempt on inactive account: ${email}`)
+      return NextResponse.json({ error: 'Staff account is inactive. Contact your administrator.' }, { status: 401 })
     }
 
     const isValidPassword = verifyPassword(password, account.password_hash)
     if (!isValidPassword) {
-      return NextResponse.json({ error: 'Invalid staff credentials' }, { status: 401 })
+      console.warn(`[staff-account] Failed password verification for email: ${email}`)
+      return NextResponse.json({ error: 'Invalid staff credentials - wrong password' }, { status: 401 })
     }
 
+    console.log(`[staff-account] Successful login for staff: ${email}`)
     return NextResponse.json({
       data: {
         name: String(account.name || account.email),

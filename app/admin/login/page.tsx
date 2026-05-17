@@ -102,7 +102,20 @@ export default function AdminLoginPage() {
 
           const result = await response.json()
           if (!response.ok || result.error) {
-            throw new Error(result.error || 'Invalid staff credentials')
+            let errorMsg = result.error || 'Invalid staff credentials'
+            
+            // Provide helpful messages for common errors
+            if (errorMsg.includes('Staff account system not set up') || errorMsg.includes('not configured')) {
+              errorMsg = 'Staff credentials not yet created. Please ask your admin to set up staff account in Settings.'
+            } else if (errorMsg.includes('account not found')) {
+              errorMsg = 'Staff account with this email does not exist. Check your email or ask admin to create account.'
+            } else if (errorMsg.includes('wrong password')) {
+              errorMsg = 'Incorrect password. Check your password and try again.'
+            } else if (errorMsg.includes('inactive')) {
+              errorMsg = 'Your staff account is inactive. Contact your administrator.'
+            }
+            
+            throw new Error(errorMsg)
           }
 
           const staffUser = {
@@ -117,7 +130,9 @@ export default function AdminLoginPage() {
           window.location.href = '/admin/staff-dashboard'
           return
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : 'Invalid staff credentials')
+          const msg = error instanceof Error ? error.message : 'Invalid staff credentials'
+          toast.error(msg)
+          console.error('[login] Staff login error:', error)
         }
       }
     } finally {
@@ -170,6 +185,15 @@ export default function AdminLoginPage() {
             👤 Staff
           </button>
         </div>
+
+        {/* Staff Setup Info */}
+        {activeRole === 'staff' && (
+          <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-3">
+            <p className="text-sm text-blue-800">
+              <span className="font-semibold">First time?</span> Your admin must set up staff credentials in Admin Settings first. Once created, use these credentials to log in from any device, anytime.
+            </p>
+          </div>
+        )}
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
