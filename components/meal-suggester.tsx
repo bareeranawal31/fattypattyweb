@@ -1,8 +1,7 @@
 "use client"
 
-import { useState, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { menuItems } from '@/lib/menu-data'
 import type { MenuItem } from '@/lib/menu-data'
 import { SignInBenefitsPrompt } from '@/components/signin-benefits-prompt'
 import { useCustomerAuth } from '@/lib/customer-auth-context'
@@ -29,10 +28,43 @@ export function MealSuggester({ onItemClick }: MealSuggesterProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>('starters')
   const [suggestion, setSuggestion] = useState<MenuItem | null>(null)
   const [pendingQuickAddItem, setPendingQuickAddItem] = useState<MenuItem | null>(null)
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [isAnimating, setIsAnimating] = useState(false)
   const lastShownIndexRef = useRef<Record<string, number>>({})
   const cardRef = useRef<HTMLDivElement>(null)
   const categorySelectRef = useRef<HTMLSelectElement>(null)
+
+  useEffect(() => {
+    const loadMenuItems = async () => {
+      try {
+        const response = await fetch('/api/menu', { cache: 'no-store' })
+        if (!response.ok) {
+          throw new Error(`Failed to fetch menu data: ${response.status}`)
+        }
+
+        const payload = await response.json()
+        const apiItems = (payload?.data?.items || []) as Array<Record<string, unknown>>
+        const mapped: MenuItem[] = apiItems.map((item) => ({
+          id: String(item.id || ''),
+          name: String(item.name || ''),
+          description: String(item.description || ''),
+          price: Number(item.price || 0),
+          category: String(item.category_id || (item.category as { id?: string } | undefined)?.id || 'other'),
+          image: String(item.image || item.image_url || fallbackImage),
+          rating: Number(item.rating || 4.5),
+          popular: Boolean(item.is_popular || item.is_featured),
+        }))
+
+        setMenuItems(mapped)
+      } catch {
+        setMenuItems([])
+      }
+    }
+
+    void loadMenuItems()
+    const interval = setInterval(loadMenuItems, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   const suggestDish = () => {
     const dishes = menuItems.filter((item) => item.category === selectedCategory)

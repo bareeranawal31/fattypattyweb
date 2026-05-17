@@ -76,18 +76,15 @@ export async function GET() {
       supabase
         .from('categories')
         .select('*')
-        .eq('is_active', true)
-        .order('display_order', { ascending: true }),
+        .eq('is_active', true),
       supabase
         .from('menu_items')
         .select('*, category:categories(id, name)')
-        .eq('is_available', true)
-        .order('sort_order'),
+        .eq('is_available', true),
       supabase
         .from('deals')
         .select('*')
-        .eq('is_active', true)
-        .order('sort_order'),
+        .eq('is_active', true),
       supabase
         .from('add_ons')
         .select('*')
@@ -119,15 +116,27 @@ export async function GET() {
     const drinkOptions = drinkOptionsQuery?.error ? [] : (drinkOptionsQuery?.data || [])
 
     // Transform V1 DB rows: add image_url alias for frontend compatibility
-    const items = ((itemsQuery?.data as Array<Record<string, unknown>> | null) || []).map((item: Record<string, unknown>) => ({
-      ...item,
-      image_url: item.image || null,
-    }))
+    const items = ((itemsQuery?.data as Array<Record<string, unknown>> | null) || [])
+      .map((item: Record<string, unknown>) => ({
+        ...item,
+        image_url: item.image || null,
+      }))
+      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+        const aOrder = Number(a.sort_order ?? a.display_order ?? 0)
+        const bOrder = Number(b.sort_order ?? b.display_order ?? 0)
+        return aOrder - bOrder
+      })
 
-    const deals = ((dealsQuery?.data as Array<Record<string, unknown>> | null) || []).map((deal: Record<string, unknown>) => ({
-      ...deal,
-      image_url: deal.image || null,
-    }))
+    const deals = ((dealsQuery?.data as Array<Record<string, unknown>> | null) || [])
+      .map((deal: Record<string, unknown>) => ({
+        ...deal,
+        image_url: deal.image || null,
+      }))
+      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+        const aOrder = Number(a.sort_order ?? a.display_order ?? 0)
+        const bOrder = Number(b.sort_order ?? b.display_order ?? 0)
+        return aOrder - bOrder
+      })
 
     const categories = [...(((categoriesQuery?.data as Array<Record<string, unknown>> | null) || []))].sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
       const aOrder = Number(a.display_order ?? a.sort_order ?? 0)

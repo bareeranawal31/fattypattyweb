@@ -52,15 +52,67 @@ function getBrowserStorageKeys(supabaseUrl: string) {
   return keys
 }
 
+function removeStorageKeyEverywhere(key: string) {
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    // Ignore storage errors.
+  }
+
+  try {
+    sessionStorage.removeItem(key)
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function hasUsableRefreshToken(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+
+  const payload = value as {
+    refresh_token?: unknown
+    currentSession?: { refresh_token?: unknown } | null
+    session?: { refresh_token?: unknown } | null
+  }
+
+  const tokenFromCurrentSession = payload.currentSession?.refresh_token
+  const tokenFromSession = payload.session?.refresh_token
+  const directToken = payload.refresh_token
+
+  const refreshToken = tokenFromCurrentSession || tokenFromSession || directToken
+  return typeof refreshToken === 'string' && refreshToken.trim().length > 0
+}
+
+function sanitizeSupabaseAuthStorage(supabaseUrl: string) {
+  if (typeof window === 'undefined') return
+
+  const keys = getBrowserStorageKeys(supabaseUrl)
+
+  for (const key of keys) {
+    const raw = localStorage.getItem(key) ?? sessionStorage.getItem(key)
+    if (!raw) continue
+
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      if (!hasUsableRefreshToken(parsed)) {
+        removeStorageKeyEverywhere(key)
+      }
+    } catch {
+      // Any malformed token blob is treated as stale and removed.
+      removeStorageKeyEverywhere(key)
+    }
+  }
+}
+
 export function clearSupabaseAuthStorage() {
   if (typeof window === 'undefined') return
 
   try {
     const { supabaseUrl } = getSupabaseEnv()
     const keys = getBrowserStorageKeys(supabaseUrl)
-    keys.forEach((key) => localStorage.removeItem(key))
+    keys.forEach((key) => removeStorageKeyEverywhere(key))
   } catch {
-    localStorage.removeItem('supabase.auth.token')
+    removeStorageKeyEverywhere('supabase.auth.token')
   }
 }
 
@@ -70,6 +122,8 @@ export function createClient() {
   }
 
   const { supabaseUrl, supabaseAnonKey } = getSupabaseEnv()
+  sanitizeSupabaseAuthStorage(supabaseUrl)
+
   browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
     global: {
       fetch: createSupabaseFetch(6000),

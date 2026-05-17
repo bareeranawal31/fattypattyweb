@@ -6,7 +6,6 @@ import { X, Plus, Minus, Trash2, ShoppingBag, Tag } from 'lucide-react'
 import { useCart, type CartItem } from '@/lib/cart-context'
 import { useOrder } from '@/lib/order-context'
 import { useAdminSettings } from '@/lib/admin-settings'
-import { menuItems } from '@/lib/menu-data'
 import type { MenuItem } from '@/lib/menu-data'
 import { cn } from '@/lib/utils'
 import { CheckoutModal } from './checkout-modal'
@@ -31,13 +30,10 @@ export function CartDrawer({ onItemClick }: CartDrawerProps) {
   const handleItemClick = (cartItem: CartItem) => {
     // For deals, we don't re-open modal since they use DealModal
     if (cartItem.type === 'deal') return
-    
-    if (cartItem.menuItem) {
-      const menuItem = menuItems.find((m) => m.id === cartItem.menuItem?.id)
-      if (menuItem && onItemClick) {
-        setIsCartOpen(false)
-        onItemClick(menuItem)
-      }
+
+    if (cartItem.menuItem && onItemClick) {
+      setIsCartOpen(false)
+      onItemClick(cartItem.menuItem)
     }
   }
 

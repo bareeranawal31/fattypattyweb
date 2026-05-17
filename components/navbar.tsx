@@ -10,7 +10,6 @@ import { useCart } from '@/lib/cart-context'
 import { useOrder } from '@/lib/order-context'
 import { useCustomerAuth } from '@/lib/customer-auth-context'
 import { useAdminSettings } from '@/lib/admin-settings'
-import { menuItems } from '@/lib/menu-data'
 import type { MenuItem } from '@/lib/menu-data'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/notify'
@@ -46,6 +45,7 @@ export function Navbar({ onItemClick }: NavbarProps) {
   const settings = useAdminSettings()
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
+  const [searchMenuItems, setSearchMenuItems] = useState<MenuItem[]>([])
   const searchInputRef = useRef<HTMLInputElement>(null)
   const searchContainerRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
@@ -57,6 +57,38 @@ export function Navbar({ onItemClick }: NavbarProps) {
     const handleScroll = () => setIsScrolled(window.scrollY > 20)
     window.addEventListener('scroll', handleScroll)
     return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  useEffect(() => {
+    const loadSearchItems = async () => {
+      try {
+        const response = await fetch('/api/menu', { cache: 'no-store' })
+        if (!response.ok) {
+          throw new Error(`Failed to load search index: ${response.status}`)
+        }
+
+        const payload = await response.json()
+        const apiItems = (payload?.data?.items || []) as Array<Record<string, unknown>>
+        const mapped: MenuItem[] = apiItems.map((item) => ({
+          id: String(item.id || ''),
+          name: String(item.name || ''),
+          description: String(item.description || ''),
+          price: Number(item.price || 0),
+          category: String(item.category_id || (item.category as { id?: string } | undefined)?.id || 'other'),
+          image: String(item.image || item.image_url || '/images/placeholder.jpg'),
+          rating: Number(item.rating || 4.5),
+          popular: Boolean(item.is_popular || item.is_featured),
+        }))
+
+        setSearchMenuItems(mapped)
+      } catch {
+        setSearchMenuItems([])
+      }
+    }
+
+    void loadSearchItems()
+    const interval = setInterval(loadSearchItems, 30000)
+    return () => clearInterval(interval)
   }, [])
 
   useEffect(() => {
@@ -77,13 +109,13 @@ export function Navbar({ onItemClick }: NavbarProps) {
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return []
     const query = searchQuery.toLowerCase()
-    return menuItems.filter(
+    return searchMenuItems.filter(
       (item) =>
         item.name.toLowerCase().includes(query) ||
         item.description.toLowerCase().includes(query) ||
         item.category.toLowerCase().includes(query)
     ).slice(0, 6)
-  }, [searchQuery])
+  }, [searchQuery, searchMenuItems])
 
   const handleResultClick = (item: MenuItem) => {
     setIsSearchOpen(false)
