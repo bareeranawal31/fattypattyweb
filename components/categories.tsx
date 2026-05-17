@@ -12,21 +12,6 @@ interface CategoryCard {
   count: number
 }
 
-interface StoredMenuItem {
-  category?: string
-  category_id?: string
-  category_name?: string
-  image?: string
-  image_url?: string
-  is_available?: boolean
-}
-
-function formatCategoryName(categoryId: string): string {
-  return categoryId
-    .replace(/-/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase())
-}
-
 const categoryOrder = new Map(defaultCategories.map((category, index) => [category.id, index]))
 
 function sortCategories<T extends { id: string; display_order?: number; sort_order?: number }>(items: T[]) {
@@ -45,34 +30,9 @@ function sortCategories<T extends { id: string; display_order?: number; sort_ord
   })
 }
 
-function buildCategoriesFromMenuItems(items: StoredMenuItem[]): CategoryCard[] {
-  const categoryMap = new Map<string, CategoryCard>()
-
-  items
-    .filter((item) => item.is_available !== false)
-    .forEach((item) => {
-      const id = (item.category_id || item.category || 'other').toString()
-      const existing = categoryMap.get(id)
-
-      if (existing) {
-        existing.count += 1
-        return
-      }
-
-      categoryMap.set(id, {
-        id,
-        name: item.category_name || formatCategoryName(id),
-        image: (item.image as string) || (item.image_url as string) || '/images/placeholder.jpg',
-        count: 1,
-      })
-    })
-
-  return Array.from(categoryMap.values())
-}
-
 export function Categories() {
   const router = useRouter()
-  const [categories, setCategories] = useState<CategoryCard[]>(defaultCategories)
+  const [categories, setCategories] = useState<CategoryCard[]>([])
 
   useEffect(() => {
     const loadCategories = async () => {
@@ -98,62 +58,29 @@ export function Categories() {
         })
 
         if (data.data?.categories && data.data.categories.length > 0) {
-          const apiCategories: CategoryCard[] = sortCategories(data.data.categories as Array<Record<string, unknown>>).map((cat: Record<string, unknown>) => ({
-            id: (cat.id as string) || 'other',
-            name: (cat.name as string) || 'Other',
-            image: (cat.image as string) || (cat.image_url as string) || '/images/placeholder.jpg',
-            count: itemCounts.get((cat.id as string) || 'other') || 0,
+          const apiCategoryRows = data.data.categories as Array<{
+            id: string
+            name?: string
+            image?: string
+            image_url?: string
+            display_order?: number
+            sort_order?: number
+          }>
+          const apiCategories: CategoryCard[] = sortCategories(apiCategoryRows).map((cat) => ({
+            id: cat.id || 'other',
+            name: cat.name || 'Other',
+            image: cat.image || cat.image_url || '/images/placeholder.jpg',
+            count: itemCounts.get(cat.id || 'other') || 0,
           }))
           setCategories(apiCategories)
           return
         }
       } catch {
-        // Fall through to local storage
-      }
-
-      const storedMenuItems = localStorage.getItem('menuItems') || localStorage.getItem('products')
-      if (!storedMenuItems) {
-        return
-      }
-
-      try {
-        const parsed = JSON.parse(storedMenuItems) as StoredMenuItem[]
-        const derived = buildCategoriesFromMenuItems(parsed)
-        if (derived.length > 0) {
-          setCategories(sortCategories(derived))
-        }
-      } catch {
-        // Keep default categories if parsing fails
-      }
-    }
-
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key !== 'menuItems' && e.key !== 'products') {
-        return
-      }
-
-      const storedMenuItems = localStorage.getItem('menuItems') || localStorage.getItem('products')
-      if (!storedMenuItems) {
-        return
-      }
-
-      try {
-        const parsed = JSON.parse(storedMenuItems) as StoredMenuItem[]
-        const derived = buildCategoriesFromMenuItems(parsed)
-        if (derived.length > 0) {
-          setCategories(sortCategories(derived))
-        }
-      } catch {
-        // Keep previous category state if parsing fails
+        setCategories([])
       }
     }
 
     loadCategories()
-    window.addEventListener('storage', handleStorageChange)
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange)
-    }
   }, [])
 
   const handleClick = (categoryId: string) => {

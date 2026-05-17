@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { Star, Zap } from 'lucide-react'
-import { popularItems } from '@/lib/menu-data'
 import type { MenuItem } from '@/lib/menu-data'
 import { SignInBenefitsPrompt } from '@/components/signin-benefits-prompt'
 import { useCustomerAuth } from '@/lib/customer-auth-context'
@@ -18,6 +17,54 @@ export function PopularItems({ onItemClick }: PopularItemsProps) {
   const { user } = useCustomerAuth()
   const [pendingQuickAddItem, setPendingQuickAddItem] = useState<MenuItem | null>(null)
   const [productRatings, setProductRatings] = useState<Record<string, number>>({})
+  const [popularItems, setPopularItems] = useState<MenuItem[]>([])
+
+  useEffect(() => {
+    const loadPopularItems = async () => {
+      try {
+        const response = await fetch('/api/menu', { cache: 'no-store' })
+        if (!response.ok) {
+          throw new Error(`Failed to load popular items: ${response.status}`)
+        }
+
+        const payload = await response.json()
+        const apiItems = (payload?.data?.items || []) as Array<Record<string, unknown>>
+
+        const mapped = apiItems.map((item) => ({
+          id: String(item.id || ''),
+          name: String(item.name || ''),
+          description: String(item.description || ''),
+          price: Number(item.price || 0),
+          category: String(item.category_id || (item.category as { id?: string } | undefined)?.id || 'other'),
+          image: String(item.image || item.image_url || '/images/placeholder.jpg'),
+          rating: Number(item.rating || 4.5),
+          popular: Boolean(item.is_popular || item.is_featured),
+        }))
+
+        const filteredPopular = mapped
+          .filter((item) => item.popular)
+          .slice(0, 6)
+
+        if (filteredPopular.length > 0) {
+          setPopularItems(filteredPopular)
+          return
+        }
+
+        // Fallback when nothing is explicitly marked popular.
+        const topRated = mapped
+          .sort((a, b) => b.rating - a.rating)
+          .slice(0, 6)
+        setPopularItems(topRated)
+      } catch (error) {
+        console.error('[v0] Error loading popular items:', error)
+        setPopularItems([])
+      }
+    }
+
+    loadPopularItems()
+    const interval = setInterval(loadPopularItems, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   useEffect(() => {
     const loadRatings = () => {

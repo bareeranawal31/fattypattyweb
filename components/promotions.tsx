@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import { Flame, Check } from 'lucide-react'
-import { deals as defaultDeals } from '@/lib/menu-data'
 import type { Deal } from '@/lib/menu-data'
 
 interface PromotionsProps {
@@ -11,13 +10,12 @@ interface PromotionsProps {
 }
 
 export function Promotions({ onDealClick }: PromotionsProps) {
-  const [deals, setDeals] = useState<Deal[]>(defaultDeals)
+  const [deals, setDeals] = useState<Deal[]>([])
 
-  // Load deals from API with localStorage fallback
+  // Load deals from API only to keep customer view in sync with admin changes.
   useEffect(() => {
     const loadDeals = async () => {
       try {
-        // Try to fetch from API first
         const response = await fetch('/api/menu', { cache: 'no-store' })
         const responseText = await response.text()
         if (!response.ok) {
@@ -48,21 +46,10 @@ export function Promotions({ onDealClick }: PromotionsProps) {
           }
         }
       } catch (error) {
-        console.error('[v0] Error fetching deals from API, falling back to localStorage:', error)
+        console.error('[v0] Error fetching deals from API:', error)
       }
-      
-      // Fallback to localStorage if API fails - use deals key
-      const storedDeals = localStorage.getItem('deals')
-      if (storedDeals) {
-        try {
-          const parsedDeals = JSON.parse(storedDeals)
-          if (parsedDeals.length > 0) {
-            setDeals(parsedDeals)
-          }
-        } catch (error) {
-          console.error('[v0] Error loading deals from localStorage:', error)
-        }
-      }
+
+      setDeals([])
     }
     
     loadDeals()

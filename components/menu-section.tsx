@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useSearchParams } from 'next/navigation'
 import { Star } from 'lucide-react'
-import { menuItems as defaultMenuItems, categories as defaultCategories } from '@/lib/menu-data'
+import { categories as defaultCategories } from '@/lib/menu-data'
 import type { MenuItem, Category } from '@/lib/menu-data'
 import { SignInBenefitsPrompt } from '@/components/signin-benefits-prompt'
 import { useCustomerAuth } from '@/lib/customer-auth-context'
@@ -59,19 +59,6 @@ function buildCategoriesFromStoredProducts(products: StoredMenuItem[]): Category
   return Array.from(categoryMap.values())
 }
 
-function mapStoredProductToMenuItem(product: StoredMenuItem): MenuItem {
-  return {
-    id: product.id,
-    name: product.name,
-    description: product.description || '',
-    price: product.price,
-    category: (product.category_id || product.category || 'other').toString(),
-    image: (product.image as string) || (product.image_url as string) || '/images/placeholder.jpg',
-    rating: product.rating || 4.5,
-    popular: product.is_popular || product.is_featured || false,
-  }
-}
-
 const categoryOrder = new Map(defaultCategories.map((category, index) => [category.id, index]))
 
 function sortCategories<T extends { id: string; display_order?: number; sort_order?: number }>(items: T[]) {
@@ -97,15 +84,14 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
   const initialCategory = searchParams.get('category') || 'all'
   const [activeCategory, setActiveCategory] = useState<string>(initialCategory)
   const [pendingQuickAddItem, setPendingQuickAddItem] = useState<MenuItem | null>(null)
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(defaultMenuItems)
-  const [categories, setCategories] = useState<Category[]>(defaultCategories)
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [productRatings, setProductRatings] = useState<Record<string, number>>({})
 
-  // Load products from API with localStorage fallback
+  // Load products from API only to keep customer view in sync with admin changes.
   useEffect(() => {
     const loadProducts = async () => {
       try {
-        // Try to fetch from API first
         const response = await fetch('/api/menu', { cache: 'no-store' })
         const responseText = await response.text()
         if (!response.ok) {
@@ -137,12 +123,20 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
           })
 
           if (data.data?.categories && data.data.categories.length > 0) {
-            const apiCategories: Category[] = sortCategories(data.data.categories as Array<Record<string, unknown>>).map((cat: Record<string, unknown>) => {
+            const apiCategoryRows = data.data.categories as Array<{
+              id: string
+              name?: string
+              image?: string
+              image_url?: string
+              display_order?: number
+              sort_order?: number
+            }>
+            const apiCategories: Category[] = sortCategories(apiCategoryRows).map((cat) => {
               const categoryId = cat.id as string
               return {
                 id: categoryId,
-                name: cat.name as string,
-                image: (cat.image as string) || (cat.image_url as string) || '/images/placeholder.jpg',
+                name: String(cat.name || categoryId),
+                image: String(cat.image || cat.image_url || '/images/placeholder.jpg'),
                 count: itemCounts.get(categoryId) || 0,
               }
             })
@@ -165,25 +159,11 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
           return
         }
       } catch (error) {
-        console.error('[v0] Error fetching from API, falling back to localStorage:', error)
+        console.error('[v0] Error fetching menu data:', error)
       }
-      
-      // Fallback to localStorage if API fails - check both menuItems and legacy products key
-      const storedProducts = localStorage.getItem('menuItems') || localStorage.getItem('products')
-      if (storedProducts) {
-        try {
-          const products = JSON.parse(storedProducts) as StoredMenuItem[]
-          const convertedProducts: MenuItem[] = products
-            .filter((p: Record<string, unknown>) => p.is_available !== false)
-            .map((p: StoredMenuItem) => mapStoredProductToMenuItem(p))
-          if (convertedProducts.length > 0) {
-            setMenuItems(convertedProducts)
-            setCategories(sortCategories(buildCategoriesFromStoredProducts(products)))
-          }
-        } catch (error) {
-          console.error('[v0] Error loading products from localStorage:', error)
-        }
-      }
+
+      setMenuItems([])
+      setCategories([])
     }
     
     loadProducts()
@@ -191,35 +171,8 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
     // Set up interval to refresh from API every 30 seconds
     const interval = setInterval(loadProducts, 30000)
     
-    // Listen for storage changes (admin updates)
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'menuItems' || e.key === 'products') {
-        // Immediately update from localStorage
-        const storedProducts = localStorage.getItem('menuItems') || localStorage.getItem('products')
-        if (storedProducts) {
-          try {
-            const products = JSON.parse(storedProducts) as StoredMenuItem[]
-            const convertedProducts: MenuItem[] = products
-              .filter((p: Record<string, unknown>) => p.is_available !== false)
-              .map((p: StoredMenuItem) => mapStoredProductToMenuItem(p))
-            if (convertedProducts.length > 0) {
-              setMenuItems(convertedProducts)
-              setCategories(sortCategories(buildCategoriesFromStoredProducts(products)))
-            }
-          } catch (error) {
-            console.error('[v0] Error loading products from localStorage on change:', error)
-          }
-        }
-        // Then refresh from API
-        loadProducts()
-      }
-    }
-    
-    window.addEventListener('storage', handleStorageChange)
-    
     return () => {
       clearInterval(interval)
-      window.removeEventListener('storage', handleStorageChange)
     }
   }, [])
 

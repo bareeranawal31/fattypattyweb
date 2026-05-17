@@ -1,10 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import {
-  categories as hardcodedCategories,
-  menuItems as hardcodedMenuItems,
-  deals as hardcodedDeals,
-} from '@/lib/menu-data'
+
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -47,45 +45,11 @@ function shouldUseDnsFallback() {
   return Date.now() < dnsFailureUntil
 }
 
-function getFallbackData() {
-  const categories = hardcodedCategories.map((cat) => ({
-    id: cat.id,
-    name: cat.name,
-    image: cat.image,
-    display_order: 0,
-    is_active: true,
-  }))
-  const items = hardcodedMenuItems.map((item) => ({
-    id: item.id,
-    name: item.name,
-    description: item.description,
-    price: item.price,
-    image: item.image,
-    image_url: item.image,
-    is_available: true,
-    category_id: item.category,
-    category: { id: item.category, name: hardcodedCategories.find(c => c.id === item.category)?.name || item.category },
-    sort_order: 0,
-    rating: item.rating,
-    is_popular: item.popular || false,
-  }))
-  const deals = hardcodedDeals.map((deal) => ({
-    id: deal.id,
-    name: deal.name,
-    title: deal.title,
-    items: deal.items,
-    price: deal.price,
-    image: deal.image,
-    image_url: deal.image,
-    is_active: true,
-  }))
-  return { categories, items, deals, addOns: [], drinkOptions: [] }
-}
-
 export async function GET() {
   if (!isSupabaseConfigured()) {
-    console.warn('[menu API] Supabase not configured, using fallback')
-    return NextResponse.json({ data: getFallbackData(), error: null }, {
+    console.warn('[menu API] Supabase not configured')
+    return NextResponse.json({ data: { categories: [], items: [], deals: [], addOns: [], drinkOptions: [] }, error: 'Supabase is not configured' }, {
+      status: 503,
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
@@ -95,7 +59,8 @@ export async function GET() {
   }
 
   if (shouldUseDnsFallback()) {
-    return NextResponse.json({ data: getFallbackData(), error: null, _fallback: true }, {
+    return NextResponse.json({ data: { categories: [], items: [], deals: [], addOns: [], drinkOptions: [] }, error: 'Temporary DNS issue while loading menu data' }, {
+      status: 503,
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
@@ -107,53 +72,64 @@ export async function GET() {
   try {
     const supabase = getSupabase()
 
-    // Fetch all menu data in parallel — using V1 schema columns
-    const [categoriesResult, itemsResult, dealsResult, addOnsResult, drinkOptionsResult] =
-      await Promise.all([
-        supabase
-          .from('categories')
-          .select('*')
-          .eq('is_active', true)
-          .order('display_order', { ascending: true }),
-        supabase
-          .from('menu_items')
-          .select('*, category:categories(id, name)')
-          .eq('is_available', true)
-          .order('sort_order'),
-        supabase
-          .from('deals')
-          .select('*')
-          .eq('is_active', true)
-          .order('sort_order'),
-        supabase
-          .from('add_ons')
-          .select('*')
-          .eq('is_active', true),
-        supabase
-          .from('drink_options')
-          .select('*')
-          .eq('is_active', true),
-      ])
+    const [categoriesResult, itemsResult, dealsResult, addOnsResult, drinkOptionsResult] = await Promise.allSettled([
+      supabase
+        .from('categories')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true }),
+      supabase
+        .from('menu_items')
+        .select('*, category:categories(id, name)')
+        .eq('is_available', true)
+        .order('sort_order'),
+      supabase
+        .from('deals')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order'),
+      supabase
+        .from('add_ons')
+        .select('*')
+        .eq('is_active', true),
+      supabase
+        .from('drink_options')
+        .select('*')
+        .eq('is_active', true),
+    ])
 
-    if (categoriesResult.error) throw categoriesResult.error
-    if (itemsResult.error) throw itemsResult.error
-    if (dealsResult.error) throw dealsResult.error
-    // add_ons and drink_options may not have data — don't throw on error
-    const addOns = addOnsResult.data || []
-    const drinkOptions = drinkOptionsResult.data || []
+    const categoriesQuery = categoriesResult.status === 'fulfilled' ? categoriesResult.value : null
+    const itemsQuery = itemsResult.status === 'fulfilled' ? itemsResult.value : null
+    const dealsQuery = dealsResult.status === 'fulfilled' ? dealsResult.value : null
+    const addOnsQuery = addOnsResult.status === 'fulfilled' ? addOnsResult.value : null
+    const drinkOptionsQuery = drinkOptionsResult.status === 'fulfilled' ? drinkOptionsResult.value : null
+
+    if (categoriesQuery?.error) {
+      console.error('[menu API] Failed to fetch categories:', categoriesQuery.error)
+    }
+    if (itemsQuery?.error) {
+      console.error('[menu API] Failed to fetch menu items:', itemsQuery.error)
+      throw itemsQuery.error
+    }
+    if (dealsQuery?.error) {
+      console.error('[menu API] Failed to fetch deals:', dealsQuery.error)
+    }
+
+    const addOns = addOnsQuery?.error ? [] : (addOnsQuery?.data || [])
+    const drinkOptions = drinkOptionsQuery?.error ? [] : (drinkOptionsQuery?.data || [])
 
     // Transform V1 DB rows: add image_url alias for frontend compatibility
-    const items = (itemsResult.data || []).map((item: Record<string, unknown>) => ({
+    const items = ((itemsQuery?.data as Array<Record<string, unknown>> | null) || []).map((item: Record<string, unknown>) => ({
       ...item,
       image_url: item.image || null,
     }))
 
-    const deals = (dealsResult.data || []).map((deal: Record<string, unknown>) => ({
+    const deals = ((dealsQuery?.data as Array<Record<string, unknown>> | null) || []).map((deal: Record<string, unknown>) => ({
       ...deal,
       image_url: deal.image || null,
     }))
 
-    const categories = [...(categoriesResult.data || [])].sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+    const categories = [...(((categoriesQuery?.data as Array<Record<string, unknown>> | null) || []))].sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
       const aOrder = Number(a.display_order ?? a.sort_order ?? 0)
       const bOrder = Number(b.display_order ?? b.sort_order ?? 0)
       return aOrder - bOrder
@@ -180,8 +156,8 @@ export async function GET() {
     if (!isDnsFailure(error)) {
       console.error('Error fetching menu:', error)
     }
-    // Fallback to hardcoded data
-    return NextResponse.json({ data: getFallbackData(), error: null }, {
+    return NextResponse.json({ data: { categories: [], items: [], deals: [], addOns: [], drinkOptions: [] }, error: 'Failed to load menu data' }, {
+      status: 500,
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
