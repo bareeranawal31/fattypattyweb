@@ -81,6 +81,18 @@ export function Categories() {
     }
 
     loadCategories()
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'menuItems' || event.key === 'products') {
+        void loadCategories()
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+    }
   }, [])
 
   const handleClick = (categoryId: string) => {

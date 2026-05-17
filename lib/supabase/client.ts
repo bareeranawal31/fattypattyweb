@@ -87,6 +87,7 @@ function sanitizeSupabaseAuthStorage(supabaseUrl: string) {
   if (typeof window === 'undefined') return
 
   const keys = getBrowserStorageKeys(supabaseUrl)
+  let removedAny = false
 
   for (const key of keys) {
     const raw = localStorage.getItem(key) ?? sessionStorage.getItem(key)
@@ -96,12 +97,16 @@ function sanitizeSupabaseAuthStorage(supabaseUrl: string) {
       const parsed = JSON.parse(raw) as unknown
       if (!hasUsableRefreshToken(parsed)) {
         removeStorageKeyEverywhere(key)
+        removedAny = true
       }
     } catch {
       // Any malformed token blob is treated as stale and removed.
       removeStorageKeyEverywhere(key)
+      removedAny = true
     }
   }
+
+  return removedAny
 }
 
 export function clearSupabaseAuthStorage() {
@@ -117,12 +122,16 @@ export function clearSupabaseAuthStorage() {
 }
 
 export function createClient() {
+  const { supabaseUrl, supabaseAnonKey } = getSupabaseEnv()
+
+  const removedStaleAuth = sanitizeSupabaseAuthStorage(supabaseUrl)
+  if (removedStaleAuth) {
+    browserClient = null
+  }
+
   if (browserClient) {
     return browserClient
   }
-
-  const { supabaseUrl, supabaseAnonKey } = getSupabaseEnv()
-  sanitizeSupabaseAuthStorage(supabaseUrl)
 
   browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
     global: {

@@ -62,8 +62,20 @@ export function MealSuggester({ onItemClick }: MealSuggesterProps) {
     }
 
     void loadMenuItems()
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'menuItems' || event.key === 'products') {
+        void loadMenuItems()
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+
     const interval = setInterval(loadMenuItems, 30000)
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('storage', handleStorageChange)
+    }
   }, [])
 
   const suggestDish = () => {

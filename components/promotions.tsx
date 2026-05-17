@@ -53,11 +53,22 @@ export function Promotions({ onDealClick }: PromotionsProps) {
     }
     
     loadDeals()
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'deals') {
+        void loadDeals()
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
     
     // Set up interval to refresh from API every 30 seconds
     const interval = setInterval(loadDeals, 30000)
     
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('storage', handleStorageChange)
+    }
   }, [])
 
   return (

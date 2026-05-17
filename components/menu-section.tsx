@@ -167,12 +167,21 @@ export function MenuSection({ onItemClick }: MenuSectionProps) {
     }
     
     loadProducts()
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'menuItems' || event.key === 'products') {
+        void loadProducts()
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
     
     // Set up interval to refresh from API every 30 seconds
     const interval = setInterval(loadProducts, 30000)
     
     return () => {
       clearInterval(interval)
+      window.removeEventListener('storage', handleStorageChange)
     }
   }, [])
 

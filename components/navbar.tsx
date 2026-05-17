@@ -87,8 +87,20 @@ export function Navbar({ onItemClick }: NavbarProps) {
     }
 
     void loadSearchItems()
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'menuItems' || event.key === 'products') {
+        void loadSearchItems()
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+
     const interval = setInterval(loadSearchItems, 30000)
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('storage', handleStorageChange)
+    }
   }, [])
 
   useEffect(() => {

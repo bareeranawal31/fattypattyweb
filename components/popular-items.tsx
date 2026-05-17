@@ -62,8 +62,20 @@ export function PopularItems({ onItemClick }: PopularItemsProps) {
     }
 
     loadPopularItems()
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'menuItems' || event.key === 'products') {
+        void loadPopularItems()
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+
     const interval = setInterval(loadPopularItems, 30000)
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('storage', handleStorageChange)
+    }
   }, [])
 
   useEffect(() => {
